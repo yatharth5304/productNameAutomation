@@ -1,0 +1,11 @@
+[2026-08-18T10:49:06.533Z] [supervisor] ─── daemon start ─── version=2.1.234 pid=18168 origin=transient
+[2026-08-18T10:49:06.593Z] [supervisor] auth: no token found, will re-check keychain every 30s
+[2026-08-18T10:49:06.602Z] [supervisor] workers=0
+[2026-08-18T10:49:06.759Z] [bg] bg: control socket bound at \\.\pipe\cc-daemon-*-control
+[2026-08-18T10:49:06.965Z] [bg] bg spawned 1800afee (slash)
+[2026-08-18T10:49:36.092Z] [bg] bg: low memory (139MB free) — retiring settled workers before spawning 2f04af3a
+[2026-08-18T10:49:36.112Z] [bg] bg spawned 2f04af3a (slash)
+[2026-08-18T10:49:39.543Z] [bg] bg settled 1800afee (crashed): source session C:\Users\yatharth\.claude\projects\F--Vintyaa-projects-Product-Name-Automation\058914c5-13de-44b5-a691-d9052be7d8c9.jsonl not found
+[2026-08-18T10:51:11.982Z] [bg] bg settled 2f04af3a (done)
+[2026-08-18T10:51:17.035Z] [supervisor] idle 5s with no clients — exiting
+[2026-08-18T10:51:17.085Z] [supervisor] shutting down (cause=idle_exit, uptime=131s, leases=0, live_workers=0)

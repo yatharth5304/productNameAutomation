@@ -1,0 +1,15 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://seekai.cc",
+    "ANTHROPIC_AUTH_TOKEN": "sk-gae6zD3NyPFiIU3UFZr9j8i6bn3B4vWk5Djd4KP8lieUkCUK"
+  },
+  "model": "opus[1m]",
+  "availableModels": [
+    "claude-fable-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-sonnet-5"
+  ],
+  "effortLevel": "xhigh"
+}
