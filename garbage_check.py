@@ -602,8 +602,8 @@ def build_brand_index(brands):
     return [(brand, normalize_text(brand)) for brand in brands]
 
 
-def exact_product_match(name, brand_index):
-    spans = token_spans(name)
+def exact_product_match(name, brand_index, precomputed_spans=None):
+    spans = precomputed_spans if precomputed_spans is not None else token_spans(name)
     if not spans:
         return None
 
@@ -627,8 +627,8 @@ def exact_product_match(name, brand_index):
     return None
 
 
-def fuzzy_product_match(name, brand_index):
-    spans = token_spans(name)
+def fuzzy_product_match(name, brand_index, precomputed_spans=None):
+    spans = precomputed_spans if precomputed_spans is not None else token_spans(name)
     if not spans:
         return None
 
@@ -916,8 +916,10 @@ def main():
     garbage_rows = build_garbage_set()
     print(f"{len(brands)} brands loaded")
 
+    print("Loading workbook...")
     wb = load_workbook(EXCEL_FILE)
     ws = wb["garbage_check"]
+    print("Workbook loaded.")
     ws["B1"] = "Garbage check"
     ws["C1"] = "Matched brand"
     ws["D1"] = "Matched text"
@@ -926,10 +928,12 @@ def main():
     ws["G1"] = "Garbage match type"
 
     if CLEAR_EXISTING:
-        for row in range(2, ws.max_row + 1):
-            for column in range(2, ws.max_column + 1):
-                ws.cell(row=row, column=column).value = None
-        print("cleared previous results outside column A")
+        print(f"Clearing {ws.max_row - 1} rows...")
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row,
+                                 min_col=2, max_col=ws.max_column):
+            for cell in row:
+                cell.value = None
+        print("Cleared previous results outside column A.")
 
     pending = []
     for row in range(2, ws.max_row + 1):
@@ -942,13 +946,15 @@ def main():
 
     if ROW_LIMIT is not None:
         pending = pending[:ROW_LIMIT]
+    print(f"{len(pending)} rows to process. Starting classification...")
 
     local_product = 0
     local_garbage = 0
     llm_pending = []
     for row, name in pending:
-        exact_match = exact_product_match(name, brand_index)
-        fuzzy_match = None if exact_match else fuzzy_product_match(name, brand_index)
+        spans = token_spans(name)
+        exact_match = exact_product_match(name, brand_index, precomputed_spans=spans)
+        fuzzy_match = None if exact_match else fuzzy_product_match(name, brand_index, precomputed_spans=spans)
         local_match = exact_match or fuzzy_match
 
         matched_brand_norm = normalize_text(local_match["brand"]) if local_match else ""
@@ -1064,6 +1070,14 @@ def main():
                 )
                 local_match = None
                 matched_brand_norm = ""
+
+        # Exception: NUMLO — when the matched span starts with 'S' (i.e. the raw
+        # text is SNUMLO), the real product is S-NUMLO, not NUMLO.
+        # Remap matched_brand_norm so downstream classification uses S-NUMLO.
+        # A plain NUMLO match (no S prefix) is left untouched.
+        if local_match and matched_brand_norm == "NUMLO":
+            if normalize_text(local_match.get("matched_text", "")).startswith("S"):
+                matched_brand_norm = "S-NUMLO"
 
         if local_match and matched_brand_norm not in LOCAL_REVIEW_BRANDS:
             ws.cell(row=row, column=2, value="0")

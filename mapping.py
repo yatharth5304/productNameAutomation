@@ -3904,7 +3904,7 @@ def process_excel_file():
             df.at[idx, SOURCE_COLUMN] = source_label
             processed_count += 1
             time.sleep(DELAY_BETWEEN_PRODUCTS)
-            if processed_count > 0 and processed_count % 10 == 0:
+            if processed_count > 0 and processed_count % 50 == 0:
                 print(f"\n✓ Auto-saving after {processed_count} rows...")
                 try:
                     _save_to_mapping_sheet(
