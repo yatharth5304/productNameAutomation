@@ -3579,46 +3579,46 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     if not verbose:
         print("  Calling reranker...")
     candidate_count = len(rerank_documents)
-    try:
-        answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
-                                              rerank_documents, verbose=verbose)
-    except Exception as e:
-        print(f"  API Error: {e}")
-        if local_best_item:
-            return make_result(local_best_item["product"],
-                               local_best_item.get("product_code", ""),
-                               status="RECOVERED_API_ERROR", confidence="LOW",
-                               candidate_count=candidate_count,
-                               suggestions=local_suggestions)
-        return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
-                           confidence="NONE", candidate_count=candidate_count,
-                           suggestions=local_suggestions)
+    # try:
+    #     answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
+    #                                           rerank_documents, verbose=verbose)
+    # except Exception as e:
+    #     print(f"  API Error: {e}")
+    #     if local_best_item:
+    #         return make_result(local_best_item["product"],
+    #                            local_best_item.get("product_code", ""),
+    #                            status="RECOVERED_API_ERROR", confidence="LOW",
+    #                            candidate_count=candidate_count,
+    #                            suggestions=local_suggestions)
+    #     return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
+    #                        confidence="NONE", candidate_count=candidate_count,
+    #                        suggestions=local_suggestions)
 
-    REQ_COUNT += 1
-    if usage:
-        pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
-              else getattr(usage, "prompt_tokens", 0)) or 0
-        ct = (usage.get("completion_tokens") if isinstance(usage, dict)
-              else getattr(usage, "completion_tokens", 0)) or 0
-        tt = (usage.get("total_tokens") if isinstance(usage, dict)
-              else getattr(usage, "total_tokens", 0)) or (pt + ct)
-        SUM_PROMPT_TOKENS += pt
-        SUM_COMPLETION_TOKENS += ct
-        SUM_TOTAL_TOKENS += tt
+    # REQ_COUNT += 1
+    # if usage:
+    #     pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
+    #           else getattr(usage, "prompt_tokens", 0)) or 0
+    #     ct = (usage.get("completion_tokens") if isinstance(usage, dict)
+    #           else getattr(usage, "completion_tokens", 0)) or 0
+    #     tt = (usage.get("total_tokens") if isinstance(usage, dict)
+    #           else getattr(usage, "total_tokens", 0)) or (pt + ct)
+    #     SUM_PROMPT_TOKENS += pt
+    #     SUM_COMPLETION_TOKENS += ct
+    #     SUM_TOTAL_TOKENS += tt
 
-    answer = answer.strip()
-    if "NO_CLEAR_MATCH" in answer.upper():
-        if local_best_item:
-            if verbose:
-                print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
-            return make_result(local_best_item["product"],
-                               local_best_item.get("product_code", ""),
-                               status="RECOVERED_LLM_REJECTED", confidence="LOW",
-                               candidate_count=candidate_count,
-                               suggestions=local_suggestions)
-        return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
-                           confidence="NONE", candidate_count=candidate_count,
-                           suggestions=local_suggestions)
+    # answer = answer.strip()
+    # if "NO_CLEAR_MATCH" in answer.upper():
+    #     if local_best_item:
+    #         if verbose:
+    #             print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
+    #         return make_result(local_best_item["product"],
+    #                            local_best_item.get("product_code", ""),
+    #                            status="RECOVERED_LLM_REJECTED", confidence="LOW",
+    #                            candidate_count=candidate_count,
+    #                            suggestions=local_suggestions)
+    #     return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
+    #                        confidence="NONE", candidate_count=candidate_count,
+    #                        suggestions=local_suggestions)
 
     matched_item, match_type = find_best_match_with_fuzzy(answer, items, verbose=verbose)
     if not matched_item:
