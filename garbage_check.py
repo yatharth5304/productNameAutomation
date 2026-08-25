@@ -10,7 +10,7 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "test1.xlsx"
+EXCEL_FILE = "test.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call
@@ -18,7 +18,24 @@ BATCH_WAIT = 2       # seconds between API calls, keeps rate limits away
 ROW_LIMIT = 190000      # only process this many rows (None = all rows)
 MAX_RETRIES = 5
 RETRY_WAIT = 10      # base seconds between retries (doubles each retry)
-USE_LLM_FALLBACK = False
+# Classification mode for a run. This is the single control point for LLM usage;
+# nothing else in this file decides whether the API is called.
+#   "local" -> local classification logic only, no LLM/API calls at all
+#   "llm"   -> local pre-pass plus the LLM fallback that resolves the rows the
+#              local pass could not confirm
+#   "both"  -> local logic and LLM processing per the current pipeline
+# The pipeline is local-first by construction: the local pass is what produces
+# the uncertain-row set the LLM consumes, so no row can reach the LLM without
+# it. "llm" and "both" therefore select the same route; both spellings are
+# accepted so the setting reads the way you expect.
+PROCESSING_MODE = "local"
+
+VALID_PROCESSING_MODES = ("llm", "local", "both")
+if PROCESSING_MODE not in VALID_PROCESSING_MODES:
+    raise ValueError(
+        f"PROCESSING_MODE must be one of {VALID_PROCESSING_MODES}, "
+        f"got {PROCESSING_MODE!r}"
+    )
 
 # Wipe column B and redo everything. Set to False so a crashed run
 # can resume where it stopped instead of restarting.
@@ -918,8 +935,17 @@ def clear_garbage_match(ws, row):
         ws.cell(row=row, column=column).value = None
 
 
+def llm_enabled():
+    """True when PROCESSING_MODE allows LLM/API calls.
+
+    PROCESSING_MODE is read at call time so a test harness can set the mode on
+    the imported module and have it take effect.
+    """
+    return PROCESSING_MODE in ("llm", "both")
+
+
 def main():
-    if not API_KEY:
+    if llm_enabled() and not API_KEY:
         raise RuntimeError(
             "API key not found. Paste your Novita API key into API_KEY at the top of this file."
         )
@@ -1161,7 +1187,7 @@ def main():
         f"{len(llm_pending)} unresolved"
     )
 
-    if USE_LLM_FALLBACK:
+    if llm_enabled():
         for start in range(0, len(llm_pending), BATCH_SIZE):
             batch = llm_pending[start:start + BATCH_SIZE]
             results = classify_batch([name for _, name in batch], brands)

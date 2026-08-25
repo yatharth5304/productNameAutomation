@@ -85,14 +85,21 @@ warnings.filterwarnings("ignore")
 # =========================
 # CONFIG - USER CONFIGURABLE
 # =========================
-# Prefer the GROQ_API_KEY environment variable; fall back to the inline key.
-# Rotate this key in the Groq console and set the env var to avoid hardcoding it.
-GROQ_API_KEY = os.environ.get(
-    "GROQ_API_KEY",
-    "sk_1ba3837c869b48f8b91144861b1b2781f32da8b0d6f440b382af87ab107b5a9a",
-)
-GROQ_API_URL = "https://hskyauefqcgbvgvxkluj.supabase.co/functions/v1/gonka/chat/completions"
-MODEL_NAME = "moonshotai/Kimi-K2.6"
+# ---- LLM reranker provider: Hugging Face Inference Providers ----------------
+# PASTE YOUR HUGGING FACE TOKEN HERE. Create a fine-grained token carrying the
+# "Make calls to Inference Providers" permission at
+# https://huggingface.co/settings/tokens  -- it looks like "hf_xxxxxxxx...".
+# Hardcoded on purpose for now; move it to an env var before sharing this file.
+HUGGINGFACE_API_KEY = "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"
+
+# OpenAI-compatible chat-completions route of the HF Inference Providers router.
+# Same request and response shape as the previous provider, so the reranker's
+# payload construction and choices[0].message.content parsing are unchanged.
+HUGGINGFACE_API_URL = "https://router.huggingface.co/v1/chat/completions"
+# Served on the router by novita and deepinfra; the router routes to the fastest
+# live provider by default and fails over if one is down. Append ":cheapest",
+# ":deepinfra" or ":novita" to the id below to pin the routing policy instead.
+MODEL_NAME = "deepseek-ai/DeepSeek-V4-Flash"
 REQUEST_TIMEOUT = 240
 MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER.xlsx"
 INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test.xlsx"
@@ -100,6 +107,24 @@ INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test.xlsx
 DELAY_BETWEEN_LLM_REQUESTS = 2.0
 ROW_LIMIT = 19888        # process only this many rows; set to None to process all
 PROCESS_MAYBE_PRODUCT_ONLY = False  # True = skip confirmed '0' rows, only run MAYBE_PRODUCT rows
+# Classification mode for a run. This is the single control point for LLM usage;
+# nothing else in this file decides whether the reranker API is called.
+#   "local" -> local ranking only, no LLM/API call is made at any point
+#   "llm"   -> local candidate generation plus the LLM reranker (Step 6)
+#   "both"  -> local logic and LLM reranking per the current pipeline
+# The pipeline is local-first by construction: Steps 1-5 build, filter and rank
+# the candidate set, and the reranker only ever sees rows those steps left with
+# more than one plausible candidate. "llm" and "both" therefore select the same
+# route; both spellings are accepted so the setting reads the way you expect.
+# The default is "both" because that is the pre-existing behaviour.
+PROCESSING_MODE = "both"
+
+VALID_PROCESSING_MODES = ("llm", "local", "both")
+if PROCESSING_MODE not in VALID_PROCESSING_MODES:
+    raise ValueError(
+        f"PROCESSING_MODE must be one of {VALID_PROCESSING_MODES}, "
+        f"got {PROCESSING_MODE!r}"
+    )
 
 INPUT_COLUMN  = "Input_Column"
 OUTPUT_COLUMN = "Output_Column"
@@ -2954,9 +2979,24 @@ def build_rerank_documents(items: list) -> list:
 # =========================
 # API CALL
 # =========================
+def llm_enabled() -> bool:
+    """True when PROCESSING_MODE allows the reranker API to be called.
+
+    PROCESSING_MODE is read at call time, not captured at import, so a test
+    harness can set the mode on the imported module before running rows.
+    """
+    return PROCESSING_MODE in ("llm", "both")
+
+
 def call_groq_llm(client, system_prompt: str, user_prompt: str, documents: list, verbose=False):
+    """POST one reranker prompt to the Hugging Face Inference Providers router.
+
+    The historical name is kept deliberately: existing A/B harnesses disable the
+    reranker by monkeypatching ``mapping.call_groq_llm``, and renaming it would
+    make those patches silently ineffective. ``client`` stays unused, as before.
+    """
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -2967,9 +3007,10 @@ def call_groq_llm(client, system_prompt: str, user_prompt: str, documents: list,
         ],
         "temperature": 0,
         "max_tokens": MAX_OUTPUT_TOKENS,
+        "stream": False,
     }
     try:
-        resp = requests.post(GROQ_API_URL, headers=headers, json=payload,
+        resp = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload,
                              timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
@@ -2980,10 +3021,10 @@ def call_groq_llm(client, system_prompt: str, user_prompt: str, documents: list,
                 detail = f" — {e.response.text[:300]}"
             except Exception:
                 detail = ""
-        raise RuntimeError(f"Groq request failed: {e}{detail}")
+        raise RuntimeError(f"Hugging Face request failed: {e}{detail}")
     choices = data.get("choices", []) or []
     if not choices:
-        raise RuntimeError(f"Empty Groq response: {data}")
+        raise RuntimeError(f"Empty Hugging Face response: {data}")
     top_text = str(choices[0].get("message", {}).get("content", "")).strip()
     usage = data.get("usage")
     if verbose:
@@ -3592,6 +3633,28 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     input_name_llm = simple_normalize_for_llm(input_name)
     brand_context = build_brand_context_string(items, verbose=verbose)
     rerank_documents = build_rerank_documents(items)
+    # PROCESSING_MODE == "local": no API call is made. The row is resolved from
+    # the ranking Steps 1-5 already produced, reusing the same local_best_item and
+    # local_suggestions the reranker error path falls back to. Candidate
+    # generation, filtering and ranking are untouched -- only the reranker call is
+    # skipped. LLM_REQUEST_ATTEMPTS is deliberately not incremented, which also
+    # keeps the DELAY_BETWEEN_LLM_REQUESTS throttle in main() from firing.
+    if not llm_enabled():
+        candidate_count = len(rerank_documents)
+        if local_best_item:
+            if verbose:
+                print(f"\nLOCAL ONLY (reranker disabled) → '{local_best_item['product']}'")
+            else:
+                print(f"  reranker disabled → local best '{local_best_item['product'][:34]}' (LOW)")
+            return make_result(local_best_item["product"],
+                               local_best_item.get("product_code", ""),
+                               status="RECOVERED_LOCAL_ONLY", confidence="LOW",
+                               candidate_count=candidate_count,
+                               suggestions=local_suggestions)
+        return make_result("NO_CLEAR_MATCH", "", status="LOCAL_ONLY_UNRESOLVED",
+                           confidence="NONE", candidate_count=candidate_count,
+                           suggestions=local_suggestions)
+
     final_prompt = USER_PROMPT_TEMPLATE.format(
         input_name=input_name_llm,
         brand_context=brand_context,
@@ -3927,7 +3990,7 @@ def process_excel_file():
             processed_count += 1
             if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
                 time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
-            if processed_count > 0 and processed_count % 50 == 0:
+            if processed_count > 0 and processed_count % 5000== 0:
                 print(f"\n✓ Auto-saving after {processed_count} rows...")
                 try:
                     _save_to_mapping_sheet(

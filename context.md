@@ -294,3 +294,203 @@ with the LLM disabled, before and after, comparing **every** result field:
 (`mapping.py:1314-1315`, plus the same comprehension in `strip_manufacturer_noise`,
 `mapping.py:1225`): ~2.7M calls each to `compact_brand_token` and `_brand_letters`,
 ~26s cumulative in the 1,500-row profile. Same safety argument, separate change.
+
+## Performance: character-set fuzzy pre-filter (`garbage_check.py`)
+
+**Change** — three edits, no matching logic touched.
+
+1. `garbage_check.py:601-613` - `build_brand_index` now also fills a module-level
+   `_BRAND_CHAR_SETS` dict, `brand_norm -> frozenset(brand_norm)`, once per run. The dict
+   form was chosen over widening the index tuples so `exact_product_match` stays
+   byte-identical; the value is a pure function of the key, so two brands sharing a
+   normalized form cannot corrupt an entry.
+2. `fuzzy_product_match` - `span_sets = [frozenset(span["norm"]) for span in spans]` is
+   built once before the brand loop, and `brand_set = _BRAND_CHAR_SETS[brand_norm]` is
+   hoisted next to `max_edits` (one lookup per brand, not per pair). The inner loop is
+   `for span, span_set in zip(spans, span_sets)`, which preserves span visitation order.
+3. The 10-line `# --- Character-bag pre-filter ---` block (two dict-counting loops plus
+   `sum(abs(v) for v in freq.values())`) is replaced by:
+
+```python
+if len(span_set - brand_set) > max_edits:
+    continue
+```
+
+Loop nesting, brand order, the `max_edits` rule, the length filter, the
+`edit_distance_leq_one` -> `damerau_distance` sequence and the order-sensitive
+rank/tie-break block are unchanged.
+
+**Why it was expensive** — the bag block ran ~2,165 times per fuzzy row and rebuilt the
+span's own character counts for every brand, even though the span is fixed across the
+whole brand loop. Per fuzzy row: 9,895 (brand, span) pairs examined, 2,165 pass the length
+filter and built a bag, 1.2 pass the bag, 1.0 reach the DP - i.e. nearly all the time went
+into a pre-filter rejecting 99.94% of what it saw.
+
+**Why accuracy cannot move** — `len(span_set - brand_set) > max_edits` is a *necessary*
+condition for Damerau-Levenshtein distance <= `max_edits`: a character present in the span
+but absent from the brand must be removed by a deletion or a substitution (transpositions
+only reorder, never remove), and distinct characters need distinct edits. The new filter is
+therefore weaker, never stronger - every pair the old filter accepted still passes. Pairs
+that newly slip through reach the exact distance checks, and an exact result <= `max_edits`
+always satisfied the old `char_diff <= 2*max_edits` bound too, so no pair can become a
+candidate that was not one before. The candidate sequence handed to the order-sensitive
+tie-break is unchanged.
+
+**Measured** (17,654-row `test.xlsx` / sheet `garbage_check`, 849 brands,
+`USE_LLM_FALLBACK = False`):
+
+| | old | new |
+|---|---|---|
+| `fuzzy_product_match` over the 5,404 rows that reach it | 74.2s (13.74 ms/row) | **30.8s (5.70 ms/row)** - 2.41x |
+| full `main()` end to end | 62.3s | **29.9s** - 2.09x |
+
+**Verified identical** — unit level: both module versions loaded in one process, same brand
+list (849, identical order) and same spans; over all 5,404 fuzzy rows, 0 dict mismatches
+and 0 mismatches on `brand` / `matched_text` / `match_type`. End to end: `main()` run for
+each version against a separate copy of `test.xlsx` with `CLEAR_EXISTING = True`, then
+columns B:G diffed cell by cell across all 17,655 rows - **0 differences**.
+`python -m py_compile garbage_check.py` OK; startup still prints `849 brands loaded`;
+line endings preserved (1,204 CRLF, 0 bare LF).
+
+**Not implemented** — the analysis' follow-up (indexing spans by normalized length, which
+would take the fuzzy path to ~11.9s / 5.0x overall) was deliberately left out: it reorders
+span visits within each brand, so its safety rests on a tie-break argument rather than on
+the loop being untouched.
+
+**Unrelated pre-existing state** — `EXCEL_FILE` is set to `"test1.xlsx"`, which does not
+exist in the project (only `test.xlsx` does). That predates this work and was not changed;
+the validation harness overrides `EXCEL_FILE` at runtime instead.
+
+## Configuration: `PROCESSING_MODE` (`garbage_check.py`)
+
+`USE_LLM_FALLBACK` has been replaced by a single named mode switch. Earlier references to
+`USE_LLM_FALLBACK = False` in this document therefore describe what is now
+`PROCESSING_MODE = "local"`.
+
+```python
+PROCESSING_MODE = "local"   # "llm" | "local" | "both"
+```
+
+| value | behaviour |
+|---|---|
+| `"local"` | local classification logic only; no LLM/API call is reachable |
+| `"llm"` | local pre-pass plus the LLM fallback that resolves its unconfirmed rows |
+| `"both"` | local logic and LLM processing per the current pipeline |
+
+`"llm"` and `"both"` select the same route, because the pipeline is local-first by
+construction: the per-row loop is what fills `llm_pending`, so the LLM only ever sees the
+rows local classification could not confirm and no row can reach it without the local pass.
+Both spellings are accepted so the setting reads the way the caller expects; there is no
+LLM-only path to route to, and creating one would have changed classification behaviour.
+
+**Wiring** — three edits, no classification or matching logic touched:
+
+- `garbage_check.py:21-38` — `USE_LLM_FALLBACK = False` replaced by `PROCESSING_MODE`,
+  `VALID_PROCESSING_MODES = ("llm", "local", "both")`, and an import-time `ValueError` on
+  an unrecognised value (a typo fails loudly instead of silently disabling the LLM).
+- `garbage_check.py:938-944` — new `llm_enabled()` returns
+  `PROCESSING_MODE in ("llm", "both")`. It reads the module global at call time, so a
+  harness can set `m.PROCESSING_MODE` on the imported module and have it take effect.
+- `garbage_check.py:948` and `garbage_check.py:1190` — the two LLM gates now call
+  `llm_enabled()`. The API-key guard in `main()` is gated too, so `"local"` no longer
+  requires a key to be present.
+
+`PROCESSING_MODE` is the only control point: `USE_LLM_FALLBACK` no longer exists, so there
+is no second flag that can contradict it. Harnesses that set `USE_LLM_FALLBACK` on the
+imported module must set `PROCESSING_MODE` instead.
+
+**Verified** — `python -m py_compile garbage_check.py` OK. `llm_enabled()` returns
+`False` / `True` / `True` for `"local"` / `"llm"` / `"both"`; `PROCESSING_MODE = "LOCAL"`
+raises `ValueError` at import. AST check: `requests.*` is issued only by `call_model`, the
+only `classify_batch` call in `main()` is the one inside `if llm_enabled():`, so no API
+call is reachable in `"local"` mode. End to end, the pre-change file with
+`USE_LLM_FALLBACK = False` and the new file with `PROCESSING_MODE = "local"` were each run
+by `main()` against a separate copy of `test.xlsx` with `CLEAR_EXISTING = True` and
+`requests.post` patched to raise: both completed without attempting a call, and columns
+B:G diffed cell by cell across all 17,655 rows show 0 differences. Line endings
+preserved (1,230 CRLF, 0 bare LF).
+
+## Configuration: `PROCESSING_MODE` (`mapping.py`)
+
+`mapping.py` had no LLM switch at all: the Step 6 reranker was called unconditionally for
+every row that Steps 1-5 left with more than one plausible candidate. Runs with the model
+disabled were previously simulated by monkeypatching `call_groq_llm` to raise, which worked
+but labelled every such row `RECOVERED_API_ERROR`. A named mode switch now exists.
+
+```python
+PROCESSING_MODE = "both"   # "llm" | "local" | "both"
+```
+
+| value | behaviour |
+|---|---|
+| `"local"` | local candidate generation, filtering and ranking only; no API call is reachable |
+| `"llm"` | local pipeline plus the Step 6 LLM reranker |
+| `"both"` | local logic and LLM reranking per the current pipeline (pre-existing behaviour) |
+
+The default is `"both"` because that is what the file did before. Note this differs from
+`garbage_check.py`, whose default is `"local"` — there the pre-existing state was
+`USE_LLM_FALLBACK = False`. Each file's default preserves its own prior behaviour.
+
+`"llm"` and `"both"` select the same route. The pipeline is local-first by construction:
+Steps 1-5 build, filter and rank the candidate set, and the reranker only ever sees rows
+those steps could not settle. There is no LLM-only path to route to, and creating one would
+mean bypassing candidate generation — a change to matching behaviour, not a config option.
+
+**Wiring** — three edits, no classification, candidate-generation, filtering or ranking
+logic touched:
+
+- `mapping.py:103-121` — `PROCESSING_MODE`, `VALID_PROCESSING_MODES = ("llm", "local",
+  "both")`, and an import-time `ValueError` on an unrecognised value, so a typo fails
+  loudly instead of silently disabling the reranker.
+- `mapping.py:2975-2981` — new `llm_enabled()` returns `PROCESSING_MODE in ("llm", "both")`,
+  reading the module global at call time so a harness can set `m.PROCESSING_MODE` on the
+  imported module and have it take effect.
+- `mapping.py:3628` — the gate, placed in `process_product` immediately after
+  `rerank_documents = build_rerank_documents(items)` and before the prompt is built. In
+  `"local"` mode it returns the row from the ranking Steps 1-5 already produced, reusing the
+  same `local_best_item` / `local_suggestions` the reranker's error path falls back to:
+  `RECOVERED_LOCAL_ONLY` / `LOW` when there is a local best, `LOCAL_ONLY_UNRESOLVED` /
+  `NONE` when there is not. `LLM_REQUEST_ATTEMPTS` is deliberately not incremented, which
+  is what keeps the `DELAY_BETWEEN_LLM_REQUESTS` throttle in `main()` from firing — that
+  throttle was already conditional on the counter advancing, so it needed no edit.
+
+Gating inside `process_product` covers every entry point: all three `process_product` call
+sites (the lower-variant recursive retry at `mapping.py:3482`, the batch loop in `main()` at
+`mapping.py:3966`, and the interactive block at `mapping.py:4067`) go through the same Step 6.
+
+**Two new status values.** `RECOVERED_LOCAL_ONLY` mirrors `RECOVERED_API_ERROR` and
+`LOCAL_ONLY_UNRESOLVED` mirrors `API_ERROR`, but they say what actually happened instead of
+reporting an API error for a call that was never attempted. Only one status consumer exists
+in the file — `res["status"] == "MATCHED"` in the lower-variant recovery at
+`mapping.py:3488` — and neither new value is `MATCHED`, exactly as neither of the two
+statuses they mirror is, so control flow there is unchanged.
+
+**Verified** — `python -m py_compile mapping.py` OK. `llm_enabled()` returns `False` /
+`True` / `True` for `"local"` / `"llm"` / `"both"`; `PROCESSING_MODE = "LOCAL"` raises
+`ValueError` at import. AST check: `requests.post` and `requests.RequestException` appear
+only inside `call_groq_llm`, the sole `call_groq_llm` call sits at `mapping.py:3653`, and the
+gate at `mapping.py:3628` precedes it, so no API call is reachable in `"local"` mode.
+
+Full-corpus replay, 12,972 `Source='0'` rows against `PRODUCT_MASTER.xlsx` with
+`forced_brand` hints, `requests` replaced by an object that raises `AssertionError` on any
+`post` (none was raised in any leg):
+
+| leg | configuration | time |
+|---|---|---|
+| A | pre-change file, `call_groq_llm` patched to raise | 299s |
+| B | new file, `PROCESSING_MODE = "both"`, `call_groq_llm` patched to raise | 270s |
+| C | new file, `PROCESSING_MODE = "local"`, nothing patched | 236s |
+
+- **A vs B on `product_code` + `status` + `output` + `confidence`: 0 differences.** The
+  default mode reproduces pre-change behaviour exactly.
+- **A vs C on `product_code` + `output` + `confidence`: 0 differences.** Every mapping
+  decision is identical to the established LLM-off baseline.
+- A vs C on `status`: 416 differences, all of them the intended relabel
+  `RECOVERED_API_ERROR` -> `RECOVERED_LOCAL_ONLY`. Mapped-row count 12,073 in all three legs.
+
+`LOCAL_ONLY_UNRESOLVED` did not fire on this corpus — no row reaches Step 6 without a local
+best. The `API_ERROR` branch it mirrors is unexercised here for the same reason (0
+`API_ERROR` rows in leg A), so both remain untested against real data.
+
+Line endings preserved: 4,074 CRLF, 27 bare LF (was 4,025 / 27; +49 lines, no LF drift).
+`PROCESSING_MODE` is the only control point — there is no second flag that can contradict it.
