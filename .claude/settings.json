@@ -1,15 +1,8 @@
 {
   "env": {
-    "ANTHROPIC_BASE_URL": "https://seekai.cc",
-    "ANTHROPIC_AUTH_TOKEN": "sk-gae6zD3NyPFiIU3UFZr9j8i6bn3B4vWk5Djd4KP8lieUkCUK"
+    "ANTHROPIC_BASE_URL": "https://api.justwoker.icu",
+    "ANTHROPIC_API_KEY": "sk-7cZQRqLvLcP9wkgHHA0zX8smq5j22dnk7IcZYZtp87tPDUyg",
+    "ANTHROPIC_MODEL": "claude-opus-5"
   },
-  "model": "opus[1m]",
-  "availableModels": [
-    "claude-fable-5",
-    "claude-opus-4-7",
-    "claude-opus-4-8",
-    "claude-opus-5",
-    "claude-sonnet-5"
-  ],
-  "effortLevel": "xhigh"
+  "model": "claude-opus-5"
 }
