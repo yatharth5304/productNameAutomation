@@ -1266,9 +1266,24 @@ def _split_glued_brand_token(tok: str, brand_letters: set) -> str:
     return tok
 
 
+# Single-slot cache for _variant_subvariant_tokens. Keyed on the identity of the
+# brand_map object and holding a reference to it: keeping the reference alive stops
+# the object being collected and its id() reused by a different map, so a stale hit
+# is impossible. A value-based key is deliberately avoided for that reason.
+_VST_CACHE_MAP = None
+_VST_CACHE_VAL = None
+
+
 def _variant_subvariant_tokens(brand_map: dict) -> tuple:
     """Alpha tokens (len>=2) seen in any VARIANT / SUB_VARIANT across the master,
-    used to split a glued variant+sub-variant token ('OHFORTE'→'OH FORTE')."""
+    used to split a glued variant+sub-variant token ('OHFORTE'→'OH FORTE').
+
+    The result is a pure function of brand_map, which build_brand_product_map
+    creates once per run and never mutates, so it is memoized per map object
+    instead of being rebuilt for every input row."""
+    global _VST_CACHE_MAP, _VST_CACHE_VAL
+    if _VST_CACHE_MAP is brand_map:      # same master object -> same vocabulary
+        return _VST_CACHE_VAL
     var, subvar = set(), set()
     for items in brand_map.values():
         for it in items:
@@ -1276,6 +1291,7 @@ def _variant_subvariant_tokens(brand_map: dict) -> tuple:
                 var.add(t)
             for t in re.findall(r'[A-Z]{2,}', str(it.get("sub_variant", "")).upper()):
                 subvar.add(t)
+    _VST_CACHE_MAP, _VST_CACHE_VAL = brand_map, (var, subvar)
     return var, subvar
 
 

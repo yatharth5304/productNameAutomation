@@ -225,3 +225,72 @@ truth for the brand vocabulary. `Brand Names.txt` was resynchronized against its
 `build_brand_index()` builds 849 pairs; `python -m py_compile garbage_check.py` OK.
 Only `Brand Names.txt` and this file were modified (one cosmetic separator fix:
 `"SKIZOTUS","S-NUMLO"` -> `"SKIZOTUS", "S-NUMLO"`, inert for `load_brands()`).
+
+---
+
+## Performance: `_variant_subvariant_tokens` memoized (mapping.py)
+
+**Change** — `mapping.py:1269-1295`. `_variant_subvariant_tokens(brand_map)` rebuilt the
+master's VARIANT / SUB_VARIANT alpha-token vocabulary from scratch on **every input row**,
+even though the result is a pure function of a `brand_map` that is frozen for the whole
+run. It now carries a single-slot cache:
+
+```python
+_VST_CACHE_MAP = None
+_VST_CACHE_VAL = None
+...
+    global _VST_CACHE_MAP, _VST_CACHE_VAL
+    if _VST_CACHE_MAP is brand_map:      # same master object -> same vocabulary
+        return _VST_CACHE_VAL
+    ...                                   # loop body unchanged
+    _VST_CACHE_MAP, _VST_CACHE_VAL = brand_map, (var, subvar)
+    return var, subvar
+```
+
+The key is the **identity** of `brand_map`, and the cache holds a reference to it. Keeping
+that reference alive prevents the object from being collected and its `id()` reused by a
+different map, so a stale hit is impossible. A value-based key was deliberately avoided
+for that reason. On a miss the vocabulary is computed by the original loop and stored; on
+a hit the stored sets are returned. Nothing else in the function changed.
+
+**Why it was expensive** — the master holds 2,764 items, so each call issues 5,528
+`re.findall` invocations, and the only caller (`desegment_ocr_input`, `mapping.py:1327`)
+runs once per row from `process_product` (`mapping.py:3288`). Over the 12,972-row corpus
+that was ~71.7M `findall` calls to produce the same two sets 12,972 times. cProfile on a
+1,500-row slice put the function at 51.4s of 94.4s total - 54% of runtime, and the largest
+`tottime` entry in the program.
+
+**Why accuracy cannot move** — the function is pure (reads only `it["variant"]` /
+`it["sub_variant"]`, returns derived sets, no I/O or global state). `brand_map` is written
+at exactly one place, `build_brand_product_map` (`mapping.py:1041`), and never mutated
+afterwards; no assignment to an item's `variant` / `sub_variant` field exists anywhere in
+the file. The returned sets reach only `_split_glued_variant` (`mapping.py:1282`), which
+does membership tests and never mutates them, so sharing the cached objects is safe. A
+second `brand_map` simply misses the guard and recomputes.
+
+**Validation** — full 12,972-row replay of `hints2.tsv` against `PRODUCT_MASTER1.xlsx`
+with the LLM disabled, before and after, comparing **every** result field:
+
+| | before | after |
+|---|---|---|
+| wall clock | 171.4s | **63.0s** |
+| per row | 13.21 ms | **4.86 ms** |
+
+- **differing rows: 0** - `product_code` 0, `status` 0, `output` 0, `confidence` 0,
+  `suggestions` 0, `candidate_count` 0. The two result dumps are byte-identical.
+- 0 exceptions in either leg.
+- **speedup 2.72x, 108.4s of 171.4s removed (63%)**.
+- Cache reuse proven by instrumenting `re.findall`: **5,528 calls on the first call, 0
+  across the next 500**; the same set objects are returned every time.
+- Correctness of the guard: the memoized value equals the un-memoized loop for
+  `PRODUCT_MASTER1` (351 variant / 2 sub-variant tokens); a *different* `brand_map`
+  (`PRODUCT_MASTER.xlsx`, 269 / 59) misses and returns its own fresh, correct value;
+  switching back to the first map is correct again.
+- `python -m py_compile mapping.py` OK. Only the lines above changed - verified by diffing
+  against a pre-edit copy; original mixed line endings (4,009 CRLF + 27 bare LF) preserved.
+
+**Next performance finding, not implemented** — with this cached, the new top cost is
+`desegment_ocr_input` rebuilding `brand_compacts` / `brand_letters` per row
+(`mapping.py:1314-1315`, plus the same comprehension in `strip_manufacturer_noise`,
+`mapping.py:1225`): ~2.7M calls each to `compact_brand_token` and `_brand_letters`,
+~26s cumulative in the 1,500-row profile. Same safety argument, separate change.
