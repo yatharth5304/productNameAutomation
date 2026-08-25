@@ -96,7 +96,8 @@ MODEL_NAME = "moonshotai/Kimi-K2.6"
 REQUEST_TIMEOUT = 240
 MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER.xlsx"
 INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test.xlsx"
-DELAY_BETWEEN_PRODUCTS = 2.0
+# Retain the existing API throttle without delaying rows resolved locally.
+DELAY_BETWEEN_LLM_REQUESTS = 2.0
 ROW_LIMIT = 19888        # process only this many rows; set to None to process all
 PROCESS_MAYBE_PRODUCT_ONLY = False  # True = skip confirmed '0' rows, only run MAYBE_PRODUCT rows
 
@@ -174,6 +175,7 @@ GENERIC_VARIANT_MATCH_TOKENS = {
 }
 
 REQ_COUNT = 0
+LLM_REQUEST_ATTEMPTS = 0
 SUM_PROMPT_TOKENS = 0
 SUM_COMPLETION_TOKENS = 0
 SUM_TOTAL_TOKENS = 0
@@ -3257,7 +3259,8 @@ def filter_items_prefer_exact_brand_token(items: list, brand: str, input_name: s
         toks = re.findall(r'[A-Z]+', str(it.get("product", "")).upper())
         first = toks[0] if toks else ""
         if (first != brand_first and first.startswith(brand_first)
-                and len(first) > len(brand_first) and first not in input_tokens):
+                and len(first) > len(brand_first) and first not in input_tokens
+                and first[len(brand_first):] not in input_tokens):
             glued.append(it)          # e.g. 'ESLOMET' when input has only 'ESLO'
         else:
             exact.append(it)
@@ -3275,7 +3278,7 @@ def filter_items_prefer_exact_brand_token(items: list, brand: str, input_name: s
 def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                     client, verbose=False, _lower_variant_retry=False, forced_brand: str = None,
                     auto_detect: bool = False) -> tuple:
-    global REQ_COUNT, SUM_PROMPT_TOKENS, SUM_COMPLETION_TOKENS, SUM_TOTAL_TOKENS
+    global REQ_COUNT, LLM_REQUEST_ATTEMPTS, SUM_PROMPT_TOKENS, SUM_COMPLETION_TOKENS, SUM_TOTAL_TOKENS
 
     # Preprocessing
     raw_input_name = input_name
@@ -3434,7 +3437,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                 stripped, brand, available_variants, verbose=False)
             if stripped and stripped != input_name and any(v != "PLAIN" for v in lower_vars):
                 res = process_product(stripped, brand_map, all_variants, all_sub_variants,
-                                      client, verbose=verbose, _lower_variant_retry=True)
+                                      client, verbose=verbose, _lower_variant_retry=True,
+                                      forced_brand=forced_brand, auto_detect=auto_detect)
                 if res["status"] == "MATCHED" and res["output"] != "NO_CLEAR_MATCH":
                     if verbose:
                         print(f"\nRECOVERED (lower variant): '{brand}' lacks "
@@ -3579,46 +3583,47 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     if not verbose:
         print("  Calling reranker...")
     candidate_count = len(rerank_documents)
-    # try:
-    #     answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
-    #                                           rerank_documents, verbose=verbose)
-    # except Exception as e:
-    #     print(f"  API Error: {e}")
-    #     if local_best_item:
-    #         return make_result(local_best_item["product"],
-    #                            local_best_item.get("product_code", ""),
-    #                            status="RECOVERED_API_ERROR", confidence="LOW",
-    #                            candidate_count=candidate_count,
-    #                            suggestions=local_suggestions)
-    #     return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
-    #                        confidence="NONE", candidate_count=candidate_count,
-    #                        suggestions=local_suggestions)
+    LLM_REQUEST_ATTEMPTS += 1
+    try:
+        answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
+                                              rerank_documents, verbose=verbose)
+    except Exception as e:
+        print(f"  API Error: {e}")
+        if local_best_item:
+            return make_result(local_best_item["product"],
+                               local_best_item.get("product_code", ""),
+                               status="RECOVERED_API_ERROR", confidence="LOW",
+                               candidate_count=candidate_count,
+                               suggestions=local_suggestions)
+        return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
+                           confidence="NONE", candidate_count=candidate_count,
+                           suggestions=local_suggestions)
 
-    # REQ_COUNT += 1
-    # if usage:
-    #     pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
-    #           else getattr(usage, "prompt_tokens", 0)) or 0
-    #     ct = (usage.get("completion_tokens") if isinstance(usage, dict)
-    #           else getattr(usage, "completion_tokens", 0)) or 0
-    #     tt = (usage.get("total_tokens") if isinstance(usage, dict)
-    #           else getattr(usage, "total_tokens", 0)) or (pt + ct)
-    #     SUM_PROMPT_TOKENS += pt
-    #     SUM_COMPLETION_TOKENS += ct
-    #     SUM_TOTAL_TOKENS += tt
+    REQ_COUNT += 1
+    if usage:
+        pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
+              else getattr(usage, "prompt_tokens", 0)) or 0
+        ct = (usage.get("completion_tokens") if isinstance(usage, dict)
+              else getattr(usage, "completion_tokens", 0)) or 0
+        tt = (usage.get("total_tokens") if isinstance(usage, dict)
+              else getattr(usage, "total_tokens", 0)) or (pt + ct)
+        SUM_PROMPT_TOKENS += pt
+        SUM_COMPLETION_TOKENS += ct
+        SUM_TOTAL_TOKENS += tt
 
-    # answer = answer.strip()
-    # if "NO_CLEAR_MATCH" in answer.upper():
-    #     if local_best_item:
-    #         if verbose:
-    #             print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
-    #         return make_result(local_best_item["product"],
-    #                            local_best_item.get("product_code", ""),
-    #                            status="RECOVERED_LLM_REJECTED", confidence="LOW",
-    #                            candidate_count=candidate_count,
-    #                            suggestions=local_suggestions)
-    #     return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
-    #                        confidence="NONE", candidate_count=candidate_count,
-    #                        suggestions=local_suggestions)
+    answer = answer.strip()
+    if "NO_CLEAR_MATCH" in answer.upper():
+        if local_best_item:
+            if verbose:
+                print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
+            return make_result(local_best_item["product"],
+                               local_best_item.get("product_code", ""),
+                               status="RECOVERED_LLM_REJECTED", confidence="LOW",
+                               candidate_count=candidate_count,
+                               suggestions=local_suggestions)
+        return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
+                           confidence="NONE", candidate_count=candidate_count,
+                           suggestions=local_suggestions)
 
     matched_item, match_type = find_best_match_with_fuzzy(answer, items, verbose=verbose)
     if not matched_item:
@@ -3892,6 +3897,7 @@ def process_excel_file():
             brand_hint = None if brand_hint in (None, "", "nan", "None") else brand_hint
             auto_detect_flag = bool(row.get("_auto_detect", False))
             source_label = str(row.get("_source_label", "0"))
+            llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
             res = process_product(
                 input_name, brand_map, all_variants, all_sub_variants, client,
                 verbose=False, forced_brand=brand_hint, auto_detect=auto_detect_flag)
@@ -3903,7 +3909,8 @@ def process_excel_file():
             df.at[idx, SUGGESTIONS_COLUMN] = format_suggestions(res["suggestions"])
             df.at[idx, SOURCE_COLUMN] = source_label
             processed_count += 1
-            time.sleep(DELAY_BETWEEN_PRODUCTS)
+            if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
+                time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
             if processed_count > 0 and processed_count % 50 == 0:
                 print(f"\n✓ Auto-saving after {processed_count} rows...")
                 try:
@@ -3991,6 +3998,7 @@ def interactive_mode():
             print(f"  Products: {sum(len(items) for items in brand_map.values())}")
             print(f"  Variants: {len(all_variants)}, Sub-variants: {len(all_sub_variants)}")
             continue
+        llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
         res = process_product(
             input_name_raw, brand_map, all_variants, all_sub_variants, client, verbose=True)
         print("\n" + "=" * 60)
@@ -4005,7 +4013,8 @@ def interactive_mode():
                 code = f" ({s['product_code']})" if s.get("product_code") else ""
                 print(f"   - {s['product']}{code} [{s['score']}]")
         print("=" * 60)
-        time.sleep(DELAY_BETWEEN_PRODUCTS)
+        if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
+            time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
 
 
 # =========================

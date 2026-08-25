@@ -10,7 +10,7 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "test.xlsx"
+EXCEL_FILE = "test1.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call
@@ -1076,8 +1076,8 @@ def main():
         # Remap matched_brand_norm so downstream classification uses S-NUMLO.
         # A plain NUMLO match (no S prefix) is left untouched.
         if local_match and matched_brand_norm == "NUMLO":
-            if normalize_text(local_match.get("matched_text", "")).startswith("S"):
-                matched_brand_norm = "S-NUMLO"
+            if ("S" + matched_brand_norm) in normalize_text(name):
+                local_match["brand"] = "S-NUMLO"
 
         if local_match and matched_brand_norm not in LOCAL_REVIEW_BRANDS:
             ws.cell(row=row, column=2, value="0")
