@@ -598,8 +598,19 @@ def token_spans(name):
     return spans
 
 
+# Character sets of the normalized brand names, filled in by build_brand_index so
+# the fuzzy pre-filter does not rebuild them for every (brand, span) pair.
+# frozenset(brand_norm) is a pure function of brand_norm, so an entry stays
+# correct no matter how many brands share a normalized form.
+_BRAND_CHAR_SETS = {}
+
+
 def build_brand_index(brands):
-    return [(brand, normalize_text(brand)) for brand in brands]
+    index = [(brand, normalize_text(brand)) for brand in brands]
+    for _, brand_norm in index:
+        if brand_norm not in _BRAND_CHAR_SETS:
+            _BRAND_CHAR_SETS[brand_norm] = frozenset(brand_norm)
+    return index
 
 
 def exact_product_match(name, brand_index, precomputed_spans=None):
@@ -642,6 +653,10 @@ def fuzzy_product_match(name, brand_index, precomputed_spans=None):
     }
     best_match = None
 
+    # One character set per span instead of one per (brand, span) pair. Parallel
+    # to `spans`, so the span visitation order inside the brand loop is unchanged.
+    span_sets = [frozenset(span["norm"]) for span in spans]
+
     for brand, brand_norm in brand_index:
         brand_len = len(brand_norm)
         if brand_len <= 3:
@@ -651,24 +666,22 @@ def fuzzy_product_match(name, brand_index, precomputed_spans=None):
         # accidental collisions with common English words are extremely unlikely.
         # Brands 4-9 chars stay at <= 1 edit to prevent false positives.
         max_edits = 2 if brand_len >= 10 else 1
+        brand_set = _BRAND_CHAR_SETS[brand_norm]
 
-        for span in spans:
+        for span, span_set in zip(spans, span_sets):
             span_norm = span["norm"]
             span_len = len(span_norm)
             if abs(span_len - brand_len) > max_edits:
                 continue
 
-            # --- Character-bag pre-filter (O(n), runs before the O(m*n) DP) ---
-            # Count excess characters on each side. Each edit can reconcile at most
-            # 2 excess characters (one from each string), so if total excess > 2*max_edits
-            # the edit distance is provably larger than max_edits.
-            freq = {}
-            for c in span_norm:
-                freq[c] = freq.get(c, 0) + 1
-            for c in brand_norm:
-                freq[c] = freq.get(c, 0) - 1
-            char_diff = sum(abs(v) for v in freq.values())
-            if char_diff > 2 * max_edits:
+            # --- Character-set pre-filter (set ops, runs before the O(m*n) DP) ---
+            # A character present in the span but absent from the brand has to be
+            # removed by a deletion or a substitution -- transpositions only reorder
+            # characters, they never remove one -- and distinct characters need
+            # distinct edits. So len(span_set - brand_set) is a lower bound on the
+            # Damerau-Levenshtein distance: a necessary condition, which means no
+            # pair the exact distance checks below would accept is rejected here.
+            if len(span_set - brand_set) > max_edits:
                 continue
 
             # --- Try standard single-edit first for precise match type ---
