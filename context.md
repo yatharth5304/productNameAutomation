@@ -494,3 +494,194 @@ best. The `API_ERROR` branch it mirrors is unexercised here for the same reason 
 
 Line endings preserved: 4,074 CRLF, 27 bare LF (was 4,025 / 27; +49 lines, no LF drift).
 `PROCESSING_MODE` is the only control point — there is no second flag that can contradict it.
+
+## Console output: batch mode reduced to one line per row (`mapping.py`)
+
+Batch runs used to print the whole internal filter trace for every row — the brand
+banner, `After variant filter`, `After sub-variant filter`, `After name-strength
+filter`, `After form prioritization`, `Detected pack size`, `After pack size filter`,
+`Calling reranker...`, then `✓ Matched (...)` and `Code: ...` — followed by a bare
+`[9/17094] <input>` progress line. Roughly ten lines per product, and the mapped
+product and the input never appeared together.
+
+`process_product` already had a dual-output convention: `if verbose:` prints the
+interactive STEP trace, `else:` / `if not verbose:` printed the terse batch lines.
+The cleanup deletes the batch branches only. Every `if verbose:` branch is byte
+identical, so the interactive single-product mode (menu option 2) is unchanged. Two
+unconditional brand-hint routing notes (`[forced_brand] ...`, `[auto_detect] ...`)
+were rewrapped as `if verbose:` rather than deleted, so they are still available when
+debugging one product. The one print left unguarded inside `process_product` is
+`  API Error: {e}` — a real failure, not progress noise.
+
+The per-row line is emitted by `process_excel_file`, which already holds both the
+input name and the result dict, so no new output was added inside internal
+functions and the processing order is untouched. `format_row_result()` (just above
+`process_excel_file`) reads `res["output"]`, `res["product_code"]` and
+`res["status"]` verbatim — the console shows the mapping result, never a
+reconstructed or guessed name:
+
+```text
+[ 1/12] CORDARON 100 TAB 10 TAB                      → CORDARONE 100 MG TABLET 20x15T [421112908]  (MATCHED)
+[ 4/12] AMARYL MP1MG TAB BL1X20S                     → NO_CLEAR_MATCH  (VARIANT_NOT_IN_MASTER)
+[ 9/12] EPOFER 4000PFS 1X1                           → EPOFER 4000 - PFS [422220109]  (RECOVERED_API_ERROR)
+```
+
+The progress counter is kept and right-padded to the width of the total, so the
+arrow column stays aligned from `[   1/17094]` to `[17094/17094]`. A row that does
+not map prints its real placeholder `NO_CLEAR_MATCH` plus the status that produced
+it (`VARIANT_NOT_IN_MASTER`, `AMBIGUOUS_STRENGTH`, `REVIEW`, ...) — it is never
+dressed up as a match. Already-mapped rows print
+`→ (already mapped, skipped)` and exceptions print `→ ERROR: <msg>` on the same
+one-line format instead of a bare `  Error: ...`.
+
+`print(` call count in `mapping.py`: 198 -> 176. No mapping logic, candidate
+generation, scoring, filtering, reranking, classification, written output or
+processing order was touched; every edit is a print removal, an `if verbose:` guard,
+or the new formatting helper.
+
+Verification:
+- `python -m py_compile mapping.py` clean; 4,090 CRLF / 0 bare LF (no line-ending drift).
+- Replayed 3,532 rows (all 1,662 non-`MATCHED` rows plus a 1-in-6 sweep) against the
+  pre-cleanup result cache with the reranker disabled: `product_code`, `status`,
+  `output` and `confidence` identical on **every** row, 0 differences. A 927-row
+  re-run after the counter-alignment tweak: 0 differences.
+- Of those 3,532 rows, exactly 416 still printed anything from `process_product` —
+  the 416 `RECOVERED_API_ERROR` rows, i.e. only the genuine `API Error` line.
+- A 12-row batch through `process_excel_file` against a temp workbook (real
+  `test.xlsx` untouched) produced the lines above, and each line matches the row
+  written to the `mapping` sheet field for field.
+
+## Variant-aware parenthetical stripping (`mapping.py`)
+
+`strip_parenthetical_noise` deleted every parenthetical of 1-4 letters as
+purchase-source noise (`(AP)`, `(SP)`, `(DPCO)`, `(EMC)`). Some suppliers use the
+same notation to carry the sub-brand instead, so the rule was also deleting the
+only token that identified the variant:
+
+```text
+AMARYL-(M)1 20S            -> AMARYL- 1 20S      -> AMARYL 1MG TABLET      (plain, wrong)
+CARDACE (H) 5 TAB 1X15     -> CARDACE 5 TAB 1X15 -> CARDACE 5 MG TABLET    (plain, wrong)
+TEMSAN (CT) 40TAB 1X10     -> TEMSAN 40TAB 1X10  -> TEMSAN 40 MG. TABLETS  (plain, wrong)
+```
+
+The tag is now looked up against the **resolved brand's own** `VARIANT` values. If
+it is one of them the parenthetical is unwrapped (`(X)` -> ` X `) so the variant
+survives into matching; if it is not, it is deleted exactly as before. Nothing
+about candidate generation, filtering, ranking, reranking, fallback or the
+`forced_brand` routing changed — only the string handed to them.
+
+The variant vocabulary comes from `get_brand_variant_tags(brand_map, brand_hint)`,
+a new read-only helper: it resolves the hint to a `brand_map` key (exact, then
+case-insensitive scan — the same two-step lookup the `forced_brand` branch already
+uses), and returns that key's `VARIANT` values restricted to 1-4 letters, with the
+`PLAIN` sentinel excluded. It reads the post-`repair_master_variant_fields` values
+held in `brand_map`, so it agrees with what the variant filter later sees.
+
+Scope is deliberately limited to rows that arrive with a brand hint (`garbage_check`
+column B == `"0"`), because `strip_parenthetical_noise` runs before brand detection.
+`MAYBE_PRODUCT` rows pass `forced_brand=None`, get `brand_variant_tags=None`, and
+keep the old behaviour byte for byte; the same is true of the second call site in
+`suggest_local_match`, which was left untouched and relies on the default argument.
+16 `MAYBE_PRODUCT` rows carry a short parenthetical and are therefore not covered —
+only one of them (`SEMI AMARYL ( M ) 10 TAB`) looks like a real variant tag.
+
+A tag that already stands as its own token elsewhere in the name is left deleted:
+there is no variant to rescue, and re-inserting it duplicated the token. This
+guard exists because it prevented a measured regression —
+`TEMSAN-H TABLETS (H )15 TABLET 1X15 TAB` already carries `H` in `TEMSAN-H`, and
+unwrapping produced `... TABLETS H 15 ...`, which moved the pick from
+`424441191 TEMSAN H TABLETS 1X15 T` to `424441192 TEMSAN 80 H TABLETS 1X15T`,
+inventing a strength the input never had.
+
+Verification:
+- `python -m py_compile mapping.py` clean; 4,122 CRLF / 0 bare LF (no line-ending drift).
+- Blast radius measured, not assumed: the preprocessed input string was computed for
+  **all 17,093 driver rows** (`"0"` + `MAYBE_PRODUCT`) under both versions.
+  Exactly **37 rows** differ. Every other row is byte identical going into the rest
+  of the pipeline, and the new helper is pure, so those rows cannot change.
+- All 125 rows containing a short parenthetical were fully re-mapped under both
+  versions with the reranker disabled: **30 changed, 95 identical**. All 30 move
+  from a `VARIANT=PLAIN` SKU (or `NO_CLEAR_MATCH`) to the variant the input names —
+  `CARDACE H/AM/METO`, `AMARYL M/MV/M FORTE`, `CORDARONE X`, `TELSITE H`,
+  `FERIUM XT +`, `PROXYM ER`, `TEMSAN CT`, `ASOMEX D`, `HOSIT FE`. 0 regressions.
+- The tags that are **not** variants of their row's brand are unchanged, confirmed
+  row by row: `(SP)`, `(HP)`, `(NR)`, `(DPCO)`, `(EMC)`, `(EMCU)`, `(NRX)`, `(BOX)`,
+  `(TAB)`, `(MCP)`, `(PEN)`, `(b)`, `(G)`, `(ND)`, `(NET)`, `(ORSL)`. The four cases
+  called out explicitly still map as before: `AMARYL 1 (30) (D)` -> 421113127,
+  `CETAPIN XR 1000 (15) (D)` -> `CETAPIN XR 1000MG TABLET 10x15T`,
+  `LASIX INJ (D)` and `LASIX INJECTION(4ML)(D)` -> `LASIX 40 MG/4ML INJECTION`.
+  `D` is a variant of `ASOMEX` and `PREGANZA` but not of `AMARYL`, `CETAPIN` or
+  `LASIX`, which is exactly why brand scoping is required.
+- Regression control: 800 rows drawn at random (seed 20260826) from the 17,056
+  rows whose preprocessed input did not change were fully re-mapped both ways —
+  **800/800 identical** on `product_code`, `output` and `status`.
+- One changed row is better but still not exact: `PROXYM 300(ER)TAB 1X15` now maps
+  to `424441862 PROXYM ER TABLET 1X15T`. The master has no `PROXYM ER 300` SKU
+  (`ER` exists only at `PLAIN` and `200`), so the strength is unrepresentable; the
+  previous answer `PROXYM 300 TABLETS` had the strength but the wrong formulation.
+- The project has no test suite or validation script; the A/B replay harness above
+  (two copies of `mapping.py` imported from separate directories, `call_groq_llm`
+  monkeypatched to raise, driven from the real `test.xlsx` `garbage_check` sheet)
+  is the comparison that was run. It lives outside the project directory.
+
+## Pipeline rule: only `remark = 0` rows are handed to `mapping.py`
+
+`garbage_check.py` writes its classification into column B of `test.xlsx!garbage_check`
+(column A = `PRODUCT_NAME`, column B = remark, column C = matched brand hint). The
+remark distribution over the current sheet is `0` 13,065 / `MAYBE_PRODUCT` 4,028 /
+`REVIEW` 520 / `1` 41 (17,654 rows).
+
+Rule: **only rows whose remark is exactly `0` (confirmed product) are processed by
+`mapping.py`.** `MAYBE_PRODUCT` rows and every other remark are excluded from the
+processing input — they are not reclassified, not converted to `NO_CLEAR_MATCH`, and
+no status is written for them; they are simply never read into `df`.
+
+Implementation — two additions to `mapping.py`, nothing removed or reordered:
+
+- `mapping.py:110-120` — new module constant beside the existing
+  `PROCESS_MAYBE_PRODUCT_ONLY`:
+
+  ```python
+  PROCESS_CONFIRMED_ZERO_ONLY = True
+  if PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY:
+      raise ValueError(...)   # the two flags are mutually exclusive
+  ```
+
+  Set it `False` to restore the previous behaviour of also processing
+  `MAYBE_PRODUCT` rows.
+
+- the row-combination block in the reader (`# Combine rows based on flag`) gains a
+  leading branch; the pre-existing `PROCESS_MAYBE_PRODUCT_ONLY` branch becomes `elif`
+  and the `else` concat is untouched:
+
+  ```python
+  if PROCESS_CONFIRMED_ZERO_ONLY:
+      df_combined = df_0.copy().reset_index(drop=True)
+  elif PROCESS_MAYBE_PRODUCT_ONLY:
+      ...
+  else:
+      df_combined = pd.concat([df_0, df_mp], ignore_index=True)
+  ```
+
+`garbage_check.py` is unchanged — no classification logic was touched. The `mask_0` /
+`mask_mp` selection already matched only `"0"` and `"MAYBE_PRODUCT"`, so the 561
+`REVIEW`/`1` rows were never processed; the only behavioural change is the exclusion
+of the 4,028 `MAYBE_PRODUCT` rows.
+
+Verified results:
+
+- `py_compile` clean on both `mapping.py` and `garbage_check.py`; `mapping.py` remains
+  CRLF throughout (4,146 CRLF / 0 bare LF).
+- Row selection against the real workbook: **13,065 rows handed to the mapper**, all
+  remark `0`; 4,028 `MAYBE_PRODUCT` skipped; 561 other remarks excluded as before
+  (previous behaviour was 17,093 rows).
+- No other mapping behaviour changed: 400 remark-`0` rows sampled (seed 20260826) and
+  replayed through pre-patch and post-patch copies of `mapping.py` imported from
+  separate directories with `call_groq_llm` monkeypatched to raise — **400/400
+  identical** on `output`, `product_code` and `status`. `process_product` was not
+  modified.
+
+Consequence to be aware of: `_save_to_mapping_sheet` deletes and recreates the
+`mapping` sheet on each run, so the next run writes 13,065 rows and the previously
+written `MAYBE_PRODUCT` result rows will no longer appear there. That follows directly
+from excluding them from the processing input.

@@ -101,12 +101,23 @@ HUGGINGFACE_API_URL = "https://router.huggingface.co/v1/chat/completions"
 # ":deepinfra" or ":novita" to the id below to pin the routing policy instead.
 MODEL_NAME = "deepseek-ai/DeepSeek-V4-Flash"
 REQUEST_TIMEOUT = 240
-MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER.xlsx"
-INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test.xlsx"
+MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER1.xlsx"
+INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test1.xlsx"
 # Retain the existing API throttle without delaying rows resolved locally.
 DELAY_BETWEEN_LLM_REQUESTS = 2.0
 ROW_LIMIT = 19888        # process only this many rows; set to None to process all
 PROCESS_MAYBE_PRODUCT_ONLY = False  # True = skip confirmed '0' rows, only run MAYBE_PRODUCT rows
+# PIPELINE RULE: only rows whose garbage_check remark is exactly "0" (confirmed
+# product) are handed to the mapper. MAYBE_PRODUCT rows -- and any other remark --
+# are excluded from the processing input rather than reclassified: they are never
+# read into df, so no status is written for them at all. Set False to restore the
+# previous behaviour of also processing MAYBE_PRODUCT rows.
+PROCESS_CONFIRMED_ZERO_ONLY = True
+if PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY:
+    raise ValueError(
+        "PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY are mutually "
+        "exclusive; set at most one of them to True."
+    )
 # Classification mode for a run. This is the single control point for LLM usage;
 # nothing else in this file decides whether the reranker API is called.
 #   "local" -> local ranking only, no LLM/API call is made at any point
@@ -671,12 +682,53 @@ def extract_brand_like_query(input_name: str) -> str:
 # part of the product name. Strip them anywhere in the input before any
 # downstream matching.
 # ============================================================================
-def strip_parenthetical_noise(s: str) -> str:
+def get_brand_variant_tags(brand_map: dict, brand_hint: str) -> set:
+    """Short (<=4-letter) real VARIANT values belonging to a resolved brand hint.
+
+    Used only by strip_parenthetical_noise, so that a parenthetical tag which is
+    one of the brand's own VARIANT values -- "AMARYL-(M)1", "CARDACE (H) 5 TAB"
+    -- is preserved rather than deleted as source noise. "PLAIN" is the
+    no-variant sentinel and is never a tag.
+    """
+    if not brand_hint or not brand_map:
+        return set()
+    hint = str(brand_hint).strip().upper()
+    key = hint if hint in brand_map else next((k for k in brand_map if k.upper() == hint), None)
+    if key is None:
+        return set()
+    tags = set()
+    for item in brand_map[key]:
+        variant = str(item.get("variant", "") or "").strip().upper()
+        if variant and variant != "PLAIN" and re.fullmatch(r'[A-Z]{1,4}', variant):
+            tags.add(variant)
+    return tags
+
+
+def strip_parenthetical_noise(s: str, brand_variant_tags: set = None) -> str:
     if not s:
         return s
+    text = str(s)
+    tag_pattern = r'\(\s*([A-Z]{1,4})\s*\)'
+    # VARIANT-AWARE EXCEPTION: when the brand for this row is already known and
+    # the tag is one of that brand's own VARIANT values, unwrap "(X)" -> " X "
+    # so the variant survives into matching ("AMARYL-(M)1" -> "AMARYL- M 1").
+    # A tag that already stands as its own token elsewhere in the name needs no
+    # rescuing, so it is dropped as before and the string is left untouched.
+    outside_tokens = None
+    if brand_variant_tags:
+        outside_tokens = set(re.findall(
+            r'[A-Z0-9]+',
+            re.sub(tag_pattern, ' ', text, flags=re.IGNORECASE).upper()))
+
+    def _unwrap_or_drop(m):
+        tag = m.group(1).strip().upper()
+        if brand_variant_tags and tag in brand_variant_tags and tag not in outside_tokens:
+            return ' ' + tag + ' '
+        return ' '
+
     # Remove (X), (XX), (XXX) — short all-letter parenthetical tags (≤4 chars).
     # Leaves legitimate content like "(1.5ML)" intact because it contains digits.
-    cleaned = re.sub(r'\(\s*([A-Z]{1,4})\s*\)', ' ', str(s), flags=re.IGNORECASE)
+    cleaned = re.sub(tag_pattern, _unwrap_or_drop, text, flags=re.IGNORECASE)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 
@@ -3340,7 +3392,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     # Preprocessing
     raw_input_name = input_name
     input_name = clean_duplicate_words(input_name)
-    input_name = strip_parenthetical_noise(input_name)      # FIX 2
+    forced_brand_variant_tags = get_brand_variant_tags(brand_map, forced_brand) if forced_brand else None
+    input_name = strip_parenthetical_noise(input_name, forced_brand_variant_tags)      # FIX 2
     input_name = strip_manufacturer_noise(input_name, brand_map)  # EMCURE-prefix noise
     input_name = desegment_ocr_input(input_name, brand_map)  # un-glue OCR strings
 
@@ -3349,8 +3402,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         print("PRODUCT MATCHING")
         print("="*80)
         print(f"Input: '{input_name}'")
-    else:
-        print(f"\nProcessing: '{input_name}'")
 
     # Step 1: Brand detection
     # For rows with a forced_brand hint (column B == "0"): look up that brand directly.
@@ -3369,8 +3420,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
             items = list(brand_map[brand])
             if verbose:
                 print(f"\n  [forced_brand] Using hint '{brand}' — {len(items)} candidates")
-            else:
-                print(f"  Brand (forced): {brand}, Initial products: {len(items)}")
         else:
             matched_key = next(
                 (k for k in brand_map if k.upper() == forced_upper), None
@@ -3380,25 +3429,27 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                 items = list(brand_map[brand])
                 if verbose:
                     print(f"\n  [forced_brand] Using hint '{brand}' (normalised) — {len(items)} candidates")
-                else:
-                    print(f"  Brand (forced): {brand}, Initial products: {len(items)}")
             else:
                 # Hint supplied but not in brand_map — fall back to auto-detect if enabled
                 if auto_detect:
-                    print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → auto-detecting brand")
+                    if verbose:
+                        print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → auto-detecting brand")
                     brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
                 else:
-                    print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → NO_CLEAR_MATCH")
+                    if verbose:
+                        print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → NO_CLEAR_MATCH")
                     return make_result("NO_CLEAR_MATCH", "",
                                        status="NO_BRAND", confidence="NONE",
                                        candidate_count=0, suggestions=[])
     else:
         # No brand hint — use auto-detection for MAYBE_PRODUCT rows
         if auto_detect:
-            print(f"  [auto_detect] No brand hint — running auto brand detection for '{input_name[:50]}'")
+            if verbose:
+                print(f"  [auto_detect] No brand hint — running auto brand detection for '{input_name[:50]}'")
             brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
         else:
-            print(f"  [forced_brand] No brand hint for '{input_name[:50]}' → NO_CLEAR_MATCH")
+            if verbose:
+                print(f"  [forced_brand] No brand hint for '{input_name[:50]}' → NO_CLEAR_MATCH")
             return make_result("NO_CLEAR_MATCH", "",
                                status="NO_BRAND", confidence="NONE",
                                candidate_count=0, suggestions=[])
@@ -3413,22 +3464,15 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
             if verbose:
                 print(f"\nRECOVERED (no brand) → '{top['product']}' "
                       f"(brand '{top.get('brand','')}' within {dist} edit(s))")
-            else:
-                print(f"  No brand found → recovered to '{top['product'][:40]}' "
-                      f"({dist} edit(s), LOW)")
             return make_result(top["product"], top.get("product_code", ""),
                                status="RECOVERED_NO_BRAND", confidence="LOW",
                                candidate_count=0, suggestions=suggestions)
         if verbose:
             print(f"\nNO_CLEAR_MATCH: no brand within {NO_BRAND_RECOVERY_MAX_EDITS} "
                   f"edits (nearest gap {dist})")
-        else:
-            print(f"  No brand within {NO_BRAND_RECOVERY_MAX_EDITS} edits → NO_CLEAR_MATCH")
         return make_result("NO_CLEAR_MATCH", "", status="NO_BRAND",
                            confidence="NONE", candidate_count=0,
                            suggestions=suggestions)
-    if not verbose:
-        print(f"  Brand: {brand}, Initial products: {len(items)}")
 
     # Step 1.5: Compound token pre-filter
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
@@ -3442,8 +3486,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         if verbose:
             print(f"\n  Compound tokens: {compound_tokens}")
         items = filter_items_by_compound_tokens(items, compound_tokens, verbose=verbose)
-        if not verbose:
-            print(f"  After compound filter: {len(items)} products")
 
     # Step 1.6: Product-name abbreviation filter (FIX 4b) — fires when sub-
     # brand is embedded in product name rather than in brand_map keys.
@@ -3500,8 +3542,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                     if verbose:
                         print(f"\nRECOVERED (lower variant): '{brand}' lacks "
                               f"{orphan_quals}; mapped to lower variant '{res['output']}'")
-                    else:
-                        print(f"  {orphan_quals} absent → lower variant '{res['output'][:34]}' (LOW)")
                     res["status"] = "RECOVERED_LOWER_VARIANT"
                     res["confidence"] = "LOW"
                 return res
@@ -3509,8 +3549,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         if verbose:
             print(f"\nNO_CLEAR_MATCH: qualifier {orphan_quals} is not a known "
                   f"variant/sub-brand of '{brand}' in the master")
-        else:
-            print(f"  Qualifier {orphan_quals} not in master for '{brand}' → NO_CLEAR_MATCH")
         return make_result("NO_CLEAR_MATCH", "", status="VARIANT_NOT_IN_MASTER",
                            confidence="NONE", candidate_count=len(brand_scope_items),
                            suggestions=suggestions)
@@ -3522,8 +3560,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         brand_items=brand_scope_items)
     items = filter_items_by_variant(items, detected_variants,
                                      reference_items=brand_scope_items, verbose=verbose)
-    if not verbose:
-        print(f"  After variant filter: {len(items)} products")
 
     # Step 3: Sub-variant filtering (FIX 6)
     detected_sub_variants = detect_sub_variants_in_input(
@@ -3531,27 +3567,17 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         compound_token_digits=compound_token_digits, verbose=verbose)
     items = filter_items_by_sub_variant(items, detected_sub_variants, input_name,
                                          reference_items=brand_scope_items, verbose=verbose)
-    if not verbose:
-        print(f"  After sub-variant filter: {len(items)} products")
 
     # Step 3.5: dose-in-name disambiguation — when SKUs share variant/sub-variant
     # and differ only by a strength in the product name (OROFER FCM 500MG/10ML).
     items = filter_items_by_name_strength(items, input_name, verbose=verbose)
-    if not verbose:
-        print(f"  After name-strength filter: {len(items)} products")
 
     # Step 4: Dosage form prioritization (FIX 7)
     detected_forms = detect_dosage_form_in_input(input_name, verbose=verbose)
     items = prioritize_by_dosage_form(items, detected_forms, verbose=verbose)
-    if not verbose:
-        if detected_forms:
-            print(f"  Detected forms: {', '.join(sorted(detected_forms))}")
-        print(f"  After form prioritization: {len(items)} products")
 
     # Step 5: Pack size filtering (FIX 1 + RULE: no-pack → base)
     input_pack_size = extract_pack_size_from_input(input_name)
-    if not verbose:
-        print(f"  Detected pack size: {input_pack_size or 'NONE (use base)'}")
     items = filter_items_by_pack_size(items, input_pack_size,
                                        reference_items=brand_scope_items, verbose=verbose)
     items = apply_galact_granules_rules(
@@ -3565,8 +3591,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         input_pack_size,
         verbose=verbose,
     )
-    if not verbose:
-        print(f"  After pack size filter: {len(items)} products")
 
     if has_ambiguous_missing_strength(items, detected_sub_variants):
         # Input strength is unresolvable against multiple numeric SKUs — do NOT
@@ -3574,8 +3598,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         suggestions = build_item_suggestions(items, input_name)
         if verbose:
             print("\nNO_CLEAR_MATCH: ambiguous strength (input does not resolve to one SKU)")
-        else:
-            print("  Ambiguous strength → NO_CLEAR_MATCH")
         return make_result("NO_CLEAR_MATCH", "", status="AMBIGUOUS_STRENGTH",
                            confidence="NONE", candidate_count=len(items),
                            suggestions=suggestions)
@@ -3586,8 +3608,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         if recovered:
             if verbose:
                 print(f"\nRECOVERED (over-filtered) → '{recovered['product']}'")
-            else:
-                print("  No products left after filtering → recovered (LOW)")
             return make_result(recovered["product"], recovered.get("product_code", ""),
                                status="RECOVERED_NO_CANDIDATES", confidence="LOW",
                                candidate_count=len(brand_scope_items),
@@ -3644,8 +3664,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         if local_best_item:
             if verbose:
                 print(f"\nLOCAL ONLY (reranker disabled) → '{local_best_item['product']}'")
-            else:
-                print(f"  reranker disabled → local best '{local_best_item['product'][:34]}' (LOW)")
             return make_result(local_best_item["product"],
                                local_best_item.get("product_code", ""),
                                status="RECOVERED_LOCAL_ONLY", confidence="LOW",
@@ -3659,8 +3677,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         input_name=input_name_llm,
         brand_context=brand_context,
     )
-    if not verbose:
-        print("  Calling reranker...")
     candidate_count = len(rerank_documents)
     LLM_REQUEST_ATTEMPTS += 1
     try:
@@ -3726,10 +3742,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         print("\n" + "="*80)
         print(f"FINAL: {matched_product_name}  (via {match_type})")
         print("="*80)
-    else:
-        print(f"  ✓ Matched ({match_type}): {matched_product_name[:50]}")
-        if product_code:
-            print(f"  Code: {product_code}")
     match_confidence = "HIGH" if match_type == "exact" else "MEDIUM"
     return make_result(matched_product_name, product_code,
                        status="MATCHED", confidence=match_confidence,
@@ -3860,6 +3872,20 @@ def _save_to_mapping_sheet(df, workbook_path):
 
     wb.save(workbook_path)
 
+def format_row_result(position: int, total: int, input_name: str, res: dict) -> str:
+    """Build the one-line batch console record for a processed row.
+
+    Reads res["output"]/res["product_code"]/res["status"] verbatim, so a row that
+    did not map shows its real placeholder (NO_CLEAR_MATCH) and status instead of
+    a reconstructed product name.
+    """
+    mapped = str(res.get("output", "") or "")
+    code = str(res.get("product_code", "") or "")
+    tail = f"{mapped} [{code}]" if code else mapped
+    counter = f"[{position:>{len(str(total))}}/{total}]"
+    return f"{counter} {input_name[:44]:<44} → {tail}  ({res.get('status', '')})"
+
+
 def process_excel_file():
     print("Loading master product data...")
     try:
@@ -3908,7 +3934,10 @@ def process_excel_file():
         df_mp["_source_label"] = "MAYBE_PRODUCT"
 
         # Combine rows based on flag
-        if PROCESS_MAYBE_PRODUCT_ONLY:
+        if PROCESS_CONFIRMED_ZERO_ONLY:
+            df_combined = df_0.copy().reset_index(drop=True)
+            print(f"  (PROCESS_CONFIRMED_ZERO_ONLY=True — skipping {mask_mp.sum()} 'MAYBE_PRODUCT' rows)")
+        elif PROCESS_MAYBE_PRODUCT_ONLY:
             df_combined = df_mp.copy().reset_index(drop=True)
             print(f"  (PROCESS_MAYBE_PRODUCT_ONLY=True — skipping {mask_0.sum()} confirmed '0' rows)")
         else:
@@ -3957,7 +3986,8 @@ def process_excel_file():
         if output_column_name in df.columns and not pd.isna(row.get(output_column_name)):
             existing_output = str(row[output_column_name]).strip()
         if existing_output and existing_output not in ("", "nan", "NaN"):
-            print(f"[{idx+1}/{total_rows}] Skipping: '{input_name[:40]}'")
+            print(f"[{idx+1:>{len(str(total_rows))}}/{total_rows}] "
+                  f"{input_name[:44]:<44} → (already mapped, skipped)")
             skipped_count += 1
             continue
         if not input_name or input_name == "nan":
@@ -3969,7 +3999,6 @@ def process_excel_file():
             df.at[idx, SUGGESTIONS_COLUMN] = ""
             continue
         try:
-            print(f"[{idx+1}/{total_rows}] {input_name[:50]}")
             # Pull the brand hint and routing flags set during row collection
             raw_hint = row.get("_brand_hint", None)
             brand_hint = str(raw_hint).strip() if raw_hint and not (isinstance(raw_hint, float) and raw_hint != raw_hint) else None
@@ -3987,6 +4016,7 @@ def process_excel_file():
             df.at[idx, CANDIDATES_COLUMN] = res["candidate_count"]
             df.at[idx, SUGGESTIONS_COLUMN] = format_suggestions(res["suggestions"])
             df.at[idx, SOURCE_COLUMN] = source_label
+            print(format_row_result(idx + 1, total_rows, input_name, res))
             processed_count += 1
             if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
                 time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
@@ -4000,7 +4030,8 @@ def process_excel_file():
                 except Exception as e:
                     print(f"  Warning: {e}\n")
         except Exception as e:
-            print(f"  Error: {e}")
+            print(f"[{idx+1:>{len(str(total_rows))}}/{total_rows}] "
+                  f"{input_name[:44]:<44} → ERROR: {str(e)[:60]}")
             df.at[idx, output_column_name] = f"ERROR: {str(e)[:100]}"
             df.at[idx, product_code_column_name] = ""
             df.at[idx, STATUS_COLUMN] = "ERROR"
@@ -4025,11 +4056,11 @@ def process_excel_file():
           f"Skipped: {skipped_count}, Errors: {error_count}")
     global REQ_COUNT, SUM_TOTAL_TOKENS
     if REQ_COUNT > 0:
-        print(f"API calls: {REQ_COUNT}, Avg tokens: {SUM_TOTAL_TOKENS/REQ_COUNT:.1f}")
+        print(f"API calls: {REQ_COUNT}, Avg tokens: {SUM_TOTAL_TOKENS / (REQ_COUNT or 1):.1f}")
     if output_column_name in df.columns:
         results = df[output_column_name].astype(str)
         successful = ~results.str.contains("NO_CLEAR_MATCH|ERROR|SKIPPED", case=False, na=False) & results.ne("")
-        print(f"Successful: {successful.sum()} ({(successful.sum()/total_rows)*100:.1f}%)")
+        print(f"Successful: {successful.sum()} ({(successful.sum() / (total_rows or 1)) * 100:.1f}%)")
     if STATUS_COLUMN in df.columns:
         status_series = df[STATUS_COLUMN].astype(str)
         recovered = status_series.str.startswith("RECOVERED").sum()

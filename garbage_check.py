@@ -10,7 +10,7 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "test.xlsx"
+EXCEL_FILE = "test1.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call
@@ -1079,10 +1079,10 @@ def main():
         # real product rows. Any other NEW match (e.g. "NEW BATCH", "NEW ARRIVAL",
         # structural headers) is invalidated and falls through to garbage/review.
         if local_match and matched_brand_norm == "NEW":
-            if not re.search(r"\bNORMIT\b", str(name), re.IGNORECASE):
+            if not re.search(r"\bNORMET\b", str(name), re.IGNORECASE):
                 print(
                     f"row {row}: {name!r} -> invalidated NEW match "
-                    f"(no NORMIT signal — not a real product row)"
+                    f"(no NORMET signal — not a real product row)"
                 )
                 local_match = None
                 matched_brand_norm = ""
