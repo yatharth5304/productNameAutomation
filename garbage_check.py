@@ -10,12 +10,12 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "test1.xlsx"
+EXCEL_FILE = "testraw.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call
 BATCH_WAIT = 2       # seconds between API calls, keeps rate limits away
-ROW_LIMIT = 190000      # only process this many rows (None = all rows)
+ROW_LIMIT = 19000000     # only process this many rows (None = all rows)
 MAX_RETRIES = 5
 RETRY_WAIT = 10      # base seconds between retries (doubles each retry)
 # Classification mode for a run. This is the single control point for LLM usage;

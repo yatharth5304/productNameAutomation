@@ -685,3 +685,128 @@ Consequence to be aware of: `_save_to_mapping_sheet` deletes and recreates the
 `mapping` sheet on each run, so the next run writes 13,065 rows and the previously
 written `MAYBE_PRODUCT` result rows will no longer appear there. That follows directly
 from excluding them from the processing input.
+
+
+## Form-aware retry guard in Steps 2 / 3 / 3.5 (`mapping.py`)
+
+### Root cause
+
+`prioritize_by_dosage_form` (Step 4) is a **filter, not a re-orderer** -
+`if exact_form_matches: return exact_form_matches`. It therefore cannot rescue a
+dosage-form-correct SKU that an *earlier* subtractive filter has already deleted:
+
+* Step 3 `filter_items_by_sub_variant` - its existing form-aware branch is gated on
+  `if not specific_detected and detected_forms:` (`mapping.py:2548`), i.e. it fires only
+  when *no* specific numeric strength was found, which is the exact inverse of the
+  failing case. `PAUSE 500MG INJ` narrows on `SUB_VARIANT=500`, which exists only as
+  `PAUSE TABLET 500 MG`, so `PAUSE INJECTION` (`SV=PLAIN`) is gone before Step 4.
+* Step 2 `filter_items_by_variant` - its PLAIN fallback collapses the scope to a single
+  PLAIN SKU (`VICARE 1-CREAM 1X30GM` -> `VICARE CAPSULES`).
+
+Both then exit through the unfloored sole-survivor short-circuit
+(`if len(items) == 1:` -> `MATCHED`/`HIGH`), which is why every one of these rows
+reports high confidence while being wrong.
+
+### Implemented change - 54 inserted lines, 0 deleted, 0 reordered
+
+Filter order is **unchanged** and `prioritize_by_dosage_form` is **untouched**. Steps 2,
+3 and 3.5 run exactly as before; only on a form-incompatible result is the *same* filter
+re-run against the form-compatible pool.
+
+1. New helper `_form_compatible(items, detected_forms)` immediately after
+   `prioritize_by_dosage_form`. Compares dosage-form **groups** (`_FORM_GROUPS`).
+   **A product with no detectable form counts as COMPATIBLE** - many correct master names
+   carry no form token (`C-ZID 1GM`, `MATERNA-HMG 150 I.U.`, `METPURE H 50 TABELTS`), and
+   discarding them is what makes a pure form-first ordering destructive (measured
+   separately: ~35 regressions).
+2. `_input_forms = detect_dosage_form_in_input(input_name, verbose=False)` hoisted above
+   Step 2. Step 4 keeps its own call and its own verbose output; the function is pure.
+3. After each of Steps 2/3/3.5: if the filter result is form-incompatible **and** a
+   form-compatible pool exists in that step's own input set, re-run the same filter on
+   the pool and adopt the result only if non-empty.
+
+**Critical detail - `reference_items` is narrowed on the retry.** The PLAIN fallback
+inside `filter_items_by_variant` (`filtered = plain_products if plain_products else
+ref_plains`) reads from `reference_items`, so an un-narrowed retry re-injects the SKU the
+guard just excluded. Verified directly:
+
+```
+input forms       : ['CREAM']
+normal Step-2 out : ['VICARE CAPSULES']          form-compatible? False
+compatible pool   : ['VICARE I-CREAM 1x30GM']
+retry ref=FULL    : ['VICARE CAPSULES']          <-- excluded SKU re-injected
+retry ref=POOL    : ['VICARE I-CREAM 1x30GM']    <-- what the landed code does
+```
+
+### Validation - full 13,065-row A/B replay
+
+`python -m py_compile mapping.py garbage_check.py` -> OK. Line endings preserved:
+`mapping.py` CRLF 4200 / bare LF 0; `garbage_check.py` CRLF 1230 / bare LF 0 and
+**unmodified** (`git diff --stat garbage_check.py` empty).
+
+Harness: two copies of `mapping.py`, baseline produced by neutralising the single hoisted
+line (`_input_forms = set()`), which makes all three guards dead code and reproduces exact
+pre-change behaviour. `call_groq_llm` monkeypatched to raise, so **no LLM call occurs**;
+every `remark = 0` row of `test.xlsx!garbage_check` replayed through `process_product`
+with its column-C brand hint.
+
+```
+base 13065 rows | new 13065 rows | row keys identical
+rows differing (output / product_code / status): 41
+  code -> none : 0        <- no mapping lost
+  none -> code : 1
+  code switched: 40
+```
+
+`code -> none = 0`: the guard never turns a mapped row into `NO_CLEAR_MATCH`. Named cases:
+
+| Input | Before | After |
+|---|---|---|
+| `PAUSE 500MG INJ` (x6) | `424441657 PAUSE TABLET 500 MG` | `424441951 PAUSE INJECTION` |
+| `FERIUM INJ 1K` (x9) | chewable tablets / drops / syrup | `421111885 FERIUM INJECTION 1K (1GM/20ML)` |
+| `FERIUM ... INJ` (x6) | chewable tablets / syrup | `421110953 FERIUM INJECTION 500MG` (form right, strength unverified) |
+| `VICARE 1-CREAM` (x4) | `421110538 VICARE CAPSULES` | `421113026 VICARE I-CREAM 1x30GM` |
+| `CORDERONE INJ.3M X1` | `421112910 CORDARONE X 200 MG TABLET` | `421112909 CORDARONE 150 MG/3ML INJECTION` |
+| `ZOSECTA 40MG INJ` (x2) | `424440050 ZOSECTA TABLET` | `421112230 ZOSECTA IV 20Mg.` |
+| `OROFER XT SYR/SUSP` (x2) | **correct** | **REGRESSED - see below** |
+
+Also corrected: `PANSALVE 40 INJ VIAL` -> `421111709`; `IMINORAL SYP 50ML` ->
+`421111811`; `VITANOVA D3 6L INJ` -> `423330702`; `C-LET 2.0 GM INJECTION IV` ->
+`421112471`; `PAUSE 1000 MG TAB` (x2) -> `424442023 PAUSE 1000 TABLETS`;
+`FERIUM XT 15\ 1*15TAB` -> `424441955`. The single `none -> code` gain is
+`RABIFAST INJ 1 VAIL`: `AMBIGUOUS_STRENGTH`/`NO_CLEAR_MATCH` ->
+`423331410 RABIFAST IV 20 MG INJECTION`.
+
+### Open regression - 2 rows, NOT yet fixed
+
+Validation point 5 ("previously correct mappings do not change unexpectedly") **fails on
+two rows**:
+
+```
+[8908]  'OROFER XT+ SYR 200 ML'  424441225 OROFER XT + SUSPENSION 200 ML -> 424440118 OROFER XT-DHA 7 X 1 KIT
+[10424] 'OROFER XT SYR 1X150'    424440590 OROFER XT SUSPENSION 150 ML   -> 424440118 OROFER XT-DHA 7 X 1 KIT
+```
+
+Cause is **pre-existing and outside this change**: `\bSYR\.?\b` is listed under INJECTION
+in the form table at `mapping.py:2636` (intended as *syringe*), but the OCR corpus writes
+**SYRUP** as `SYR`. The guard did not create the mislabel, it only made it consequential.
+
+The remedy is one edit - drop bare `\bSYR\.?\b` from the INJECTION alternation, keeping
+the counted form `\d+SYR\.?\b` (`1SYR` = a real syringe). Measured, not applied:
+
+```
+guard-only        vs guard+SYRfix : 2 rows differ - both are restorations to the baseline code
+base vs guard+SYRfix : 39 differ | code->none 0 | none->code 1 | switched 38
+```
+
+**Not applied**, because this task's directive was "Do not make any other changes". Note
+`\bSYR\.?\b` also appears under INJECTION in `detect_dosage_form_in_product`
+(`mapping.py:2699`); only the input-side occurrence at 2636 was measured, and 2699 should
+be left alone unless separately measured.
+
+Honest decomposition of the 41: ~24 confirmed correct, 8 form-correct with strength not
+independently verified (the FERIUM 500MG group), 6 reranker-dependent statuses whose final
+code still depends on Step 6, 1 neutral (`DROPER XT PLUSE SYP 200ML` moves between two
+wrong SKUs - the brand itself is a bad upstream fuzzy match), **2 regressions** above.
+
+MAPPING_MAIN.py created as the new combined garbage-check + product-mapping pipeline; detailed context is maintained in context_combined.md.

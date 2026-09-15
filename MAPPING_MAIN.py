@@ -1,71 +1,46 @@
-##updated_ts_5 — integrated fixes (pack extraction, variant specificity,
-##                 sub-brand abbreviation, ghost variant, combo fallback,
-##                 OCR form tokens, paren noise, pack base-variant rule)
-##
-## CHANGES vs. updated_ts_3 (ALL data-driven — no hardcoded brand/variant names):
-##
-##   FIX 1 (new, biggest):  extract_pack_size_from_input — regex-order fix
-##       The old order treated "\d+MG" as a pack. Now pack-count tokens
-##       (10S, 15 TAB, 1X15, 30 PCS) are tried BEFORE dosage-unit matches,
-##       and MG/MCG/IU are removed from pack extraction entirely (they are
-##       dosage strengths, never pack counts). Liquid volume (ML/GM/L)
-##       is kept as a last-resort pack fallback for syrups/injectables.
-##       ~279 of 929 red rows are affected by this bug alone.
-##
-##   FIX 2:  strip_parenthetical_noise
-##       "(AP)", "(AV)", "(SP)", "(ST)" are source-tags, not content.
-##       Strip them before brand/variant/sub-variant detection.
-##
-##   FIX 3:  find_potential_brands — compact-prefix boundary
-##       "OROFER SYP…" must NOT match brand "OROFER S". Compact match
-##       requires the character AFTER the brand-compact prefix to be a
-##       digit or end-of-string, not a letter.
-##
-##   FIX 4:  find_best_brand_for_input — abbreviated sub-brand promotion
-##       "CARDACE MET 5 TAB" → CARDACE METO (not plain CARDACE).
-##       "CARDACE PRO 2.5"  → CARDACE PROTECT.
-##       Structural prefix match on the token after the matched brand.
-##       Works when master stores sub-brands as separate BRAND_NAME keys.
-##
-##   FIX 4b: filter_items_by_product_name_abbrev — Scenario B fallback
-##       When the master keeps all family members under ONE BRAND_NAME
-##       (e.g. BRAND_NAME="CARDACE" with product names "CARDACE PROTECT
-##       2.5 TABLET"), FIX 4 can't find a sub-brand key to promote to.
-##       This fallback scans PRODUCT NAMES of the selected brand for a
-##       UNIQUE alpha token that strictly extends the input's abbrev
-##       (input "PRO" → product "PROTECT"), and filters items to match.
-##
-##   FIX 5:  filter_items_by_variant — most-specific variant wins
-##       When detected variants form a subset chain (e.g. {M, M FORTE}),
-##       prefer the superset (M FORTE). No hardcoded variant names;
-##       uses word-subset logic. Falls back to old behavior if no items.
-##
-##   FIX 6:  filter_items_by_sub_variant — combo first-component fallback
-##       Input "CARDACE AM 10/5" when master has no literal "10/5" combo
-##       SKU falls back to the FIRST component: "CARDACE AM 10". Your
-##       master convention; structural split on '/'.
-##
-##   FIX 7:  detect_dosage_form_in_input — expanded OCR-safe tokens
-##       Accept SYP., SUSP., INJ., ING, VIAL, PFS, AMPS, SYR, \d+SYR,
-##       15CAP glued forms, etc. Purely prefix+learned-abbrev recognition.
-##
-##   FIX 8:  calculate_product_name_priority_score — structural-only penalty
-##       Drops the hardcoded _SKIP_PENALTY list. Identifies pack shapes
-##       (10X15T, 8x20T, 10S, 15T, 30PCS) and unit suffixes (MG, ML, GM,
-##       MCG, IU, KG) by regex; penalty magnitude bumped to 40 per extra
-##       text token so ghost variants (BETA, AMH, EZ, LAR) lose against
-##       the plain candidate.
-##
-##   FIX 9:  rank_local_candidates — ghost-token penalty on product name
-##       Extends the existing alpha-ghost penalty to tokens inside the
-##       PRODUCT NAME (not just variant/sub_variant columns). Uses known
-##       pharma-suffix vocabulary for the penalty trigger only.
-##
-##   FIX 10: Fuzzy threshold relaxed to 80
-##       Catches brand typos like ASOMAX→ASOMEX, CORDRONE→CORDARONE,
-##       ATORC→ATOREC, MAGVEL→MEGVAL. Threshold was 85; now 80 with the
-##       existing candidate-filtering safeguard.
+"""
+MAPPING_MAIN.py — combined garbage-check + product-mapping pipeline.
 
+ONE pass over the input workbook produces ONE output workbook with three columns:
+
+    Input | Remark | Product Code
+
+Flow
+----
+    input row
+       -> garbage-check classification (fully LOCAL, no LLM)
+            garbage        -> GARBAGE        / 1
+            review         -> REVIEW         / 2
+            maybe product  -> NO_SUGGESTION  / 0
+            confirmed product (remark "0") -> continue, carrying its matched brand
+       -> product-mapping pipeline (local Steps 1-5 + ranking)
+            local mapping succeeded          -> <product name> / <9-digit code>
+            NO_CLEAR_MATCH                   -> NO_SUGGESTION  / 0
+            decision would need the reranker -> NO_SUGGESTION  / 0
+
+Provenance
+----------
+Every classification and mapping function below is transplanted verbatim from
+`garbage_check.py` and `mapping.py`. Those two files are NOT imported and NOT
+modified; this script is self-contained so it can be run and versioned on its own.
+
+Two things are deliberately different from the originals, both documented in
+`context_combined.md`:
+
+1. Brand detection comes from the garbage-check stage ONLY. `mapping.py`'s own
+   independent brand matching (`find_best_brand_for_input`, `find_potential_brands`,
+   `group_related_brands`, `find_abbrev_promoted_brand`, `suggest_nearest_brands`,
+   `nearest_brand_within_edits`) is omitted, and the branches that called it now
+   return the pipeline's existing NO_BRAND / NO_CLEAR_MATCH result.
+2. No LLM call can occur. The reranker code is retained but commented out, and any
+   row whose final code would have come from the reranker is reported as
+   NO_SUGGESTION / 0 rather than falling back to an unreranked local candidate.
+
+Accuracy rule this file is built around: a NO_SUGGESTION is acceptable, a wrong
+product code is not.
+"""
+
+import difflib
 import os
 import re
 import sys
@@ -82,60 +57,877 @@ from rapidfuzz.distance import Levenshtein, JaroWinkler
 
 warnings.filterwarnings("ignore")
 
-# =========================
-# CONFIG - USER CONFIGURABLE
-# =========================
-# ---- LLM reranker provider: Hugging Face Inference Providers ----------------
-# PASTE YOUR HUGGING FACE TOKEN HERE. Create a fine-grained token carrying the
-# "Make calls to Inference Providers" permission at
-# https://huggingface.co/settings/tokens  -- it looks like "hf_xxxxxxxx...".
-# Hardcoded on purpose for now; move it to an env var before sharing this file.
-HUGGINGFACE_API_KEY = "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"
 
-# OpenAI-compatible chat-completions route of the HF Inference Providers router.
-# Same request and response shape as the previous provider, so the reranker's
-# payload construction and choices[0].message.content parsing are unchanged.
-HUGGINGFACE_API_URL = "https://router.huggingface.co/v1/chat/completions"
-# Served on the router by novita and deepinfra; the router routes to the fastest
-# live provider by default and fails over if one is down. Append ":cheapest",
-# ":deepinfra" or ":novita" to the id below to pin the routing policy instead.
-MODEL_NAME = "deepseek-ai/DeepSeek-V4-Flash"
-REQUEST_TIMEOUT = 240
+# ============================================================================
+# CONFIGURATION
+# ----------------------------------------------------------------------------
+# The four names that collide between the two source files (PROCESSING_MODE,
+# VALID_PROCESSING_MODES, ROW_LIMIT, llm_enabled) are declared ONCE here.
+# No API key, endpoint or model credential is stored in this file.
+# ============================================================================
+
+# Input: the workbook produced by the garbage-check stage's own source workbook.
+# Only column A (the raw OCR row) is read; nothing in it is written back.
+INPUT_XLSX_PATH  = r"f:\Vintyaa\projects\Product Name Automation\test1.xlsx"
+INPUT_SHEET_NAME = "garbage_check"
+
+# Output: a NEW workbook, one sheet, exactly three columns. Never overwrites the input.
+OUTPUT_XLSX_PATH   = r"f:\Vintyaa\projects\Product Name Automation\MAPPING_MAIN_OUTPUT.xlsx"
+OUTPUT_SHEET_NAME  = "mapping_main"
+OUTPUT_COLUMNS     = ("Input", "Remark", "Product Code")
+
+# Master product data and the brand vocabulary (read-only).
 MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER1.xlsx"
-INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\testraw.xlsx"
-# Retain the existing API throttle without delaying rows resolved locally.
-DELAY_BETWEEN_LLM_REQUESTS = 2.0
-ROW_LIMIT = 19888000        # process only this many rows; set to None to process all
-PROCESS_MAYBE_PRODUCT_ONLY = False  # True = skip confirmed '0' rows, only run MAYBE_PRODUCT rows
-# PIPELINE RULE: only rows whose garbage_check remark is exactly "0" (confirmed
-# product) are handed to the mapper. MAYBE_PRODUCT rows -- and any other remark --
-# are excluded from the processing input rather than reclassified: they are never
-# read into df, so no status is written for them at all. Set False to restore the
-# previous behaviour of also processing MAYBE_PRODUCT rows.
-PROCESS_CONFIRMED_ZERO_ONLY = True
-if PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY:
-    raise ValueError(
-        "PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY are mutually "
-        "exclusive; set at most one of them to True."
-    )
-# Classification mode for a run. This is the single control point for LLM usage;
-# nothing else in this file decides whether the reranker API is called.
-#   "local" -> local ranking only, no LLM/API call is made at any point
-#   "llm"   -> local candidate generation plus the LLM reranker (Step 6)
-#   "both"  -> local logic and LLM reranking per the current pipeline
-# The pipeline is local-first by construction: Steps 1-5 build, filter and rank
-# the candidate set, and the reranker only ever sees rows those steps left with
-# more than one plausible candidate. "llm" and "both" therefore select the same
-# route; both spellings are accepted so the setting reads the way you expect.
-# The default is "both" because that is the pre-existing behaviour.
-PROCESSING_MODE = "local"
+BRANDS_FILE      = r"f:\Vintyaa\projects\Product Name Automation\Brand Names.txt"
 
+# Process only this many input rows (None = all rows).
+ROW_LIMIT = None
+
+# Single control point for LLM usage in this file.
+#   "local" -> local logic only; no LLM/API call is made at any point
+#   "llm" / "both" -> would enable the reranker, which is COMMENTED OUT here
+# MAPPING_MAIN ships as "local" by design: see the reranker note below.
+PROCESSING_MODE = "local"
 VALID_PROCESSING_MODES = ("llm", "local", "both")
 if PROCESSING_MODE not in VALID_PROCESSING_MODES:
     raise ValueError(
         f"PROCESSING_MODE must be one of {VALID_PROCESSING_MODES}, "
         f"got {PROCESSING_MODE!r}"
     )
+
+
+def llm_enabled() -> bool:
+    """True when PROCESSING_MODE would allow the reranker API to be called.
+
+    Read at call time, not captured at import, so a harness can set the mode on
+    the module. While the reranker body is commented out this must stay False:
+    see MAPPING_LLM_PROMPT and RERANKER_DEPENDENT_STATUSES below.
+    """
+    return PROCESSING_MODE in ("llm", "both")
+
+
+# The reranker prompt is intentionally BLANK. No prompt is configured because no
+# LLM call is made in this build; the original prompt scaffolding is preserved
+# (commented out) next to call_groq_llm so it can be restored later.
+MAPPING_LLM_PROMPT = ""
+
+# Sentinel product codes. Every real master code is 9 digits (410000003-491110205),
+# so 0/1/2 can never collide with a genuine product code.
+CODE_GARBAGE       = 1     # remark GARBAGE
+CODE_REVIEW        = 2     # remark REVIEW
+CODE_NO_SUGGESTION = 0     # remark NO_SUGGESTION
+REMARK_GARBAGE        = "GARBAGE"
+REMARK_REVIEW         = "REVIEW"
+REMARK_NO_SUGGESTION  = "NO_SUGGESTION"
+
+
+# ==========================================================================
+# SECTION 1: GARBAGE-CHECK STAGE (local classification)
+# Transplanted verbatim from garbage_check.py (logic unchanged).
+# ==========================================================================
+
+
+SHORT_BRANDS = {"ETS", "G3N", "ICL", "IKA", "NDS", "OXA", "PRX", "REE", "VIL"}
+LOCAL_REVIEW_BRANDS = set()  # currently no brands require LLM review
+# Brands where only exact matches are accepted; fuzzy matches are invalidated.
+# EFCURE/KEMCURE/CTAX are too close to common OCR noise to trust a fuzzy hit.
+# NUNIT: fuzzy hits risk false positives against common tokens like UNIT.
+EXACT_ONLY_BRANDS = {"EFCURE", "KEMCURE", "CTAX", "NUNIT","EMNU","ACEM"}
+
+EXACT_GARBAGE_ROWS = {
+    "",
+    "--",
+    "++",
+    "++--",
+    "TOTAL",
+    "0",
+    "0 0",
+    "-- --",
+    "-- ++",
+    "TOTAL --",
+    "EMPTY",
+    "++ ++",
+    "TOTAL (VALUE IN RS.) --",
+    "VALUE IN RS.",
+    "EMCURE PHARMACEUTICALS LTD",
+    "EMCURE PHARMACEUTICALS LTD *",
+    "END OF REPORT TOTAL",
+    "TOTAL QUANTITY",
+    "TOTAL VALUE",
+    "TOTALS",
+    "TOTALS --",
+    "-",
+    "QUANTITY",
+    "TOTAL VALUE --",
+    "LAST MONTH SALE",
+    "STOCK & SALES ANALYSIS",
+    "EMCURE",
+    "GRAND TOTAL --",
+    "CONTINUED",
+    "EMCURE INVENTIA",
+    "EMCURE NUCRON",
+    "EMCURE CD",
+    "SUPPLIER NAME",
+    "QUANTITY --",
+    "PAGE NO.",
+    "COMPANY TOTAL --",
+    "TOTAL SALES IN THIS PERIOD --",
+    "TOTAL CLOSING STOCK (SALES VALUE)",
+    "DIVISION : 00 --",
+    "TOTAL VALUE (00) --",
+    "LAST MONTH SALE FEBRUARY",
+    "EMCURE NUSURGE",
+    "GRAND TOTAL",
+    "PARTICULARS PKG.",
+    "TOTAL VALUE --",
+    "COMPANY TOTAL --",
+    "TOTAL 0",
+    "CHEMICO MEDICAL AGENCIES",
+    "INDIA LIMITED *",
+    "PHARMACUTICALS LTD. *",
+    "PHARMACUTICALS LTD.",
+    "PURCHASE VALUE --",
+    "PAGE",
+    "INDIA LIMITED",
+    "AMOUNT TOTAL",
+    "QTY TOTAL",
+    "PURCHASE VALUE 0.00 CLOSING",
+    "OUR SOFTWARE MARG ERP 9880074116080233041179880427548 --",
+    "EMCURE IMPETUS",
+    "EMCURE CD --",
+    "GRANDTOTAL",
+    "GRANDTOTAL --",
+    "COMPANY EMCURE PHARMACEUTICA --",
+    "SALE VALUE --",
+    "OPENING VALUE --",
+    "** LIQUDATION IS BASED ON LAST THREE MONTHS SALES --",
+    "EMCURE INVENTIA --",
+    "EMCURE XENNEX --",
+    "THIS PDF REPORT IS CREATED FROM MEDICA ULTIMATE. FOR SOFTWARE ENQUIRY CONTACT +91-022-47474747 9750000648/658 9702074265 --",
+    "THIS PDF REPORT IS CREATED FROM MEDICA ULTIMATE. FOR SOFTWARE ENQUIRY CONTACT 91-022-47474747 9750000648/658 9702074265 --",
+    "TOTAL QUANTITY --",
+    "POWERED BY SWILERP FOR RETAIL DISTRIBUTION & CHAIN STORES --",
+    "EMCURE (XENNEX)",
+    "EMCURE PHARMACEUTICALS",
+    "PURCHASE DETAIL :-",
+    "SUPPLIER NAME INVOICE",
+    "***** --",
+    "TOTAL:",
+    "#NAME?",
+    "RATE .01",
+    "VALUE",
+    "EMCURE XENNEX",
+    "EMCURE PHARMA --",
+    "EMCURE PHARMA --",
+    "LAST MONTH",
+    "EMCURE PHARMACEUTICALS LTD.",
+    "BILL NOS. --",
+    "EMCURE NUCRON --",
+    "GROUP WISE",
+    "PRODUCT NAME STRENGTH",
+    "ASHIRWAD ENTERPRISES",
+    "EMCURE NUSURGE --",
+    "EMCURE --",
+    "RS.",
+    "VALUE 0.00",
+    "MANUFACTURER GROUP: --",
+    "VALUE IN",
+    "* *",
+    "OPENING VALUE --",
+    "** - > NOT SOLD FOR 180 DAYS * -> NOT SOLD FOR 90 DAYS #-> 90 DAYS NEAR EXPIRY STOCK. & -> UNSUPPLIED --",
+    "DIVISION TOTAL --",
+    "GST --",
+    "SUB TOTAL --",
+    "DSTK : DAYS STOCK ON 3 MONTH SALE : -2 NO SALE NO STOCK -1 NO SALE 0 NO STOCK REST DAYS STOCK# --",
+    "NEW PAGE STARTS HERE ++",
+    "NEW PAGE STARTS HERE 0",
+    "PRODUCT DETAILS",
+    "NEW PAGE STARTS HERE",
+    "NEW PAGE STARTS HERE --",
+    "ITEM DESCRIPTION BLANK_HEADER1",
+    "ITEM DESCRIPTION",
+    "ITEM NAME UNIT",
+    "ITEM NAME ++",
+    "ITEM PACK",
+    "ITEM NAME PACK",
+    "ITEM NAME",
+    "ITEM DESCRIPTION COL2",
+    "ITEM DESCRIPTION RATE",
+    "ITEM",
+    "ITEMS PACKING",
+    "ITEM NAME UOM",
+    "ITEM NAME PACKG",
+    "ITEM DESCRIPTION OPENING STOCK (1)",
+    "ITEM NAME PACK SCM",
+    "NAME OF ITEM",
+    "NO/PRODUCT NAME UNIT",
+    "PRODUCT NAME PACKING",
+    "PRODUCT NAME PACKING",
+    "PRODUCT & PACK",
+    "PRODUCT PACK",
+    "PRODUCT PKG",
+    "PRODUCT DESCRIPTION PACKING",
+    "PRODUCT NAME PACK",
+    "NON MOVING PRODUCTS ABOVE 30 DAYS --",
+    "PRODUCT NAME UNIT",
+    "PRODUCT NAME",
+    "SRNO. PRODUCT",
+    "PRODUCTNAME PACK",
+    "PRODUCT NAME BLANK_HEADER1",
+    "NON PRODUCTS ABOVE 30 BLANK_HEADER1",
+    "PRODUCT NAME PACKG",
+    "PRODUCTNAME PACK OP",
+    "PRODUCT OPENING",
+    "PRODUCT NAME AND PACK",
+    "PRODUCT PACKING",
+    "PRODUCT DESRIPTION",
+    "PRODUCT NAME CI VAL",
+    "NON MOVING PRODUCTS ABOVE 90 DAYS",
+    "PARTICULARS PACK",
+    "COL1 COL2",
+    "ID",
+    "ID --",
+    "JHARNA MEDICAL DISTRIBUTOR",
+    "PRODUCT NAME SHELF PACKING",
+    "PAGE NO.1 EMCURE-CD PRODUCT NAME SHELF PACKING ID",
+    "CATEGORY TOTAL --",
+    # Company / distributor / agency names confirmed as garbage from test.xlsx analysis
+    "ZUVENTUS LIFESTYLE",
+    "SS GENNOVA BIOPHARMA LTD",
+    "SS GENNOVA BIOPHARMA LTD (INFIUS)",
+    "SS GENNOVA BIOPHARMA LTD (INFIOUS)",
+    "BHARAT MEDICAL STORES",
+    "HEALTHWAYS AGENCIES",
+    "UMA MEDICAL AGENCIES",
+    "JAI MEDICAL TRADERS",
+    "SHUBHAM MEDICAL AGENCIES",
+    "MANGLA MEDICAL STORE",
+    "SINGLA MEDICAL AGENCIES",
+    "INDRALOK MEDICAL AGENCY",
+    "JAGDAMBA MEDICAL AGENCY",
+    "SOVA AGENCY",
+    "GUPTA MEDICAL AGENCIES",
+    "BANKEY BIHARI DRUG DISTRIBUTORS",
+    "VINAY ENTERPRISES",
+    "SANJAY DRUG AGENCIES",
+    "SURESH MEDICAL AGENCIES",
+    "KOMAL AGENCIES",
+    "AGGARWAL MEDICAL STORE",
+    "GENNOVA BIOPHARMACEUTICALS LTD",
+    "GENNOVA BIOPHARMACEUTICALS LTD.",
+    "GENNOVA BIOPHARMA LTD",
+    "GENNOVA BIOPHARMA LTD.",
+    "GENNOVA BIOPHARMA PVT LTD",
+    "GENNOVA BIOPHARMACETICALS LTD",
+    "GENNOVA BIOPHARMACUTICALS",
+    "GENNOVA BIOPHARMA",
+    "GENNOVA TRANSPLANT",
+    "PROTECTION HEALTHCARE",
+    "NUCRON PHARMA",
+    "ZEE PHARMA",
+    "SAB PHARMA",
+    "SANJIVANI MEDICOS",
+    "MUKESH MEDICOS",
+    "D.N.DRUG DISTRIBUTORS",
+    "COMPANY EMCURE CV DIV",
+    "COMPANY EMCURE DERMA",
+    "COMPANY SANOFI ORION DIV",
+    "EMCUTIX DIVISION",
+    "INTAS ALECTA DIVISION",
+    "NUCRON PHARMA EMCURE -NUCRO",
+    "EMCURE PHARAMA LTD -INVENSIA",
+    "LONE MEDICAL AGENCY",
+    "KOCHHAR MEDICAL AGENCIES",
+    "ARJUN MEDICOSE",
+    "H.M SALES CORPORATION",
+    "SANOFI EMCURE CV",
+    "SANOFI ORION",
+    "AVENTIS DIABETES",
+    "AVENTIS EMCURE",
+    "DISTRIBUTION CHAIN STORES",
+    "DEFAULT",
+    "All Marketing Groups",
+}
+
+SAFE_GARBAGE_PATTERNS = (
+    # Original patterns
+    re.compile(r"^MANUFACTURER\s+\d+$", re.IGNORECASE),
+    re.compile(r"^QUANTITY\s+\d+(?:\.\d+)?$", re.IGNORECASE),
+    re.compile(r"^VALUE\s+\d+(?:\.\d+)?$", re.IGNORECASE),
+    re.compile(r"^NO\s*/\s*PRODUCT\s+NAME\s+UNIT$", re.IGNORECASE),
+    re.compile(r"^PAGE\s+NO\.?\s*\d+.*PRODUCT\s+NAME.*PACKING.*ID$", re.IGNORECASE),
+    # Invoice / bill reference lines
+    re.compile(r"^Bill", re.IGNORECASE),   # Bill Nos., Bills:, Bills --, Bills
+    re.compile(r"^[A-Z]{4}\d{6,}\s*/\s*\d{2}/\d{2}/\d{4}"),
+    re.compile(r"^(EIAB|EIPU|ZIMU|EIMU)\d{4,}\s+Dt\.", re.IGNORECASE),
+    # Division / company / supplier structural rows
+    re.compile(r"^Division\s*:", re.IGNORECASE),
+    re.compile(r"^Division\s+\w", re.IGNORECASE),  # Division EMCURE ORION (no colon variant)
+    re.compile(r"^Total\s*[:(]", re.IGNORECASE),   # Total (G1), Total :(Opening Val
+    re.compile(r"^Total\s+Value\s*\(", re.IGNORECASE),  # Total Value (EMCURE) --, Total Value (CV) --
+    re.compile(r"^Company\s*(Group)?\s*:", re.IGNORECASE),  # Company:, COMPANY GROUP:
+    re.compile(r"^Com\s*:\s*", re.IGNORECASE),       # Com : EMCURE (PHARMA)
+    re.compile(r"^Company\s+\w", re.IGNORECASE),   # Company EMCURE ORION (no colon variant)
+    re.compile(r"^Primary Company\s+", re.IGNORECASE),
+    re.compile(r"^Company Name\s+", re.IGNORECASE),
+    re.compile(r"^Supplier\s+\w", re.IGNORECASE),
+    re.compile(r"^Store\s+\w", re.IGNORECASE),
+    re.compile(r"^Manufacturer\s+(Group|Name)\s*:", re.IGNORECASE),
+    re.compile(r"^For Manufacturer Group\s*:", re.IGNORECASE),
+    re.compile(r"^(Firm|Group|Com)[\s\w]*Total", re.IGNORECASE),
+    re.compile(r"^COMNAME\s+TOTAL", re.IGNORECASE),
+    re.compile(r"^ANNEXURE\s+\d", re.IGNORECASE),
+    # Software-generated / system rows
+    re.compile(r"^Generated at\s+\d{4}-\d{2}-\d{2}", re.IGNORECASE),
+    re.compile(r"^Prepared by\s+\w+\s+on\s+\d", re.IGNORECASE),
+    re.compile(r"^Print Date\s+\d", re.IGNORECASE),
+    re.compile(r"^Print\s+HEALTH\s+QRCODE", re.IGNORECASE),
+    re.compile(r"^Powered\s+By:", re.IGNORECASE),
+    re.compile(r"^Medica Ultimate", re.IGNORECASE),
+    re.compile(r"^Report End\)", re.IGNORECASE),
+    re.compile(r"^Printed on", re.IGNORECASE),
+    # HTML artifact rows (OCR of web-generated PDFs)
+    re.compile(r"^hr/>"),
+    re.compile(r"^u>"),
+    re.compile(r"^span\s+style", re.IGNORECASE),
+    # Financial summary / aggregate rows
+    re.compile(r"^PURC\s*:", re.IGNORECASE),
+    re.compile(r"^EXP\d+M\s*:", re.IGNORECASE),
+    re.compile(r"^(Sales|Opening|Closing|Open|Close)\s+(Stock|Val|Value)(s)?\s*[:\-]?", re.IGNORECASE),
+    re.compile(r"^(Opening|Closing)\s+Val\.", re.IGNORECASE),
+    re.compile(r"^Values?\s*:\s*[\d.]", re.IGNORECASE),
+    re.compile(r"^(TAX AMOUNT|COMPANY NAME:)", re.IGNORECASE),
+    re.compile(r"^(UC SALE|CL\.STK\.|MR\.Balance|Op\.Val\.|Pur\.Val\.)", re.IGNORECASE),
+    re.compile(r"^(Prev Month Tot|Value Age)", re.IGNORECASE),
+    re.compile(r"^STOCK\s*&\s*SALES STATEMENT", re.IGNORECASE),
+    re.compile(r"^Purchase Return", re.IGNORECASE),
+    re.compile(r"^\w+\)\s+(Sale|Purchase|Stock|Return)\s+Value", re.IGNORECASE),  # Jun) Sale Value, May) Sale Value
+    # Report footer / legend rows
+    re.compile(r"^Non Moving Since\s+\d+\s+Days?", re.IGNORECASE),
+    re.compile(r"^Sales and Last Month\s+sales based on", re.IGNORECASE),
+    re.compile(r"^Last Month\s+sales between", re.IGNORECASE),
+    re.compile(r"^Purchase bill included values", re.IGNORECASE),
+    re.compile(r"^(PENDING DEBIT NOTES|NO SUGGESTION|SHEDULED DRUG)$", re.IGNORECASE),
+    # Distributor / agency / medical store rows (formerly MAYBE_GARBAGE, promoted to direct garbage)
+    re.compile(
+        r"\b(AGENCIES?|DISTRIBUTORS?|MEDICO[SE]?|CORPORATION|ENTERPRISES?|TRADERS?|TRADING)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(PVT\.?\s+)?LTD\.?\s*$", re.IGNORECASE),
+    re.compile(r"\bLIMITED\.?\s*$", re.IGNORECASE),
+    re.compile(r"^EIKO\d{4,}", re.IGNORECASE),
+    re.compile(r"^GSTIN\s*:", re.IGNORECASE),
+    re.compile(r"^GST\s*NO\.?\s*:", re.IGNORECASE),
+    re.compile(r"^Op\.\s+Amt", re.IGNORECASE),
+    re.compile(r"^O\.B\.\s+PUR\.VAL", re.IGNORECASE),
+    re.compile(r"^Items\s+\d+\s*$", re.IGNORECASE),
+    re.compile(
+        r"^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(Sal|Sale|Stock|Pur)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^Copyright\s+\d{4}", re.IGNORECASE),
+    re.compile(r"^Powered by\s", re.IGNORECASE),
+    re.compile(r"\bcolumn_\d+\b", re.IGNORECASE),
+    re.compile(r"^TEST\s+ITEM\b", re.IGNORECASE),
+    re.compile(r"^[A-Z]{4}\d{4,}\s+Dt\.\d{2}/\d{2}/\d{4}", re.IGNORECASE),
+    re.compile(r"^Manufacturer\s+\d+\s*~", re.IGNORECASE),
+    # MARG ERP software advertisement rows (370+ occurrences with varying phone numbers)
+    re.compile(r"^MARG\s+ERP\b", re.IGNORECASE),
+    # SANOFI rows — Sanofi is not an Emcure brand; all SANOFI rows in this dataset
+    # are company headers, annexure labels, or cross-company division lines.
+    re.compile(r"\bSANOFI\b", re.IGNORECASE),
+    # OCR garbage: rows consisting entirely of repeated TAB / TABLE tokens
+    re.compile(r"^\s*(TAB(LE)?\s+)*TAB(LE)?\s*$", re.IGNORECASE),
+    # Non-pharma physical item rows (bedsheets, bags, utensils, food)
+    # DUFFAL matched as standalone word — BAG22MED suffix breaks \b after BAG so match on DUFFAL alone.
+    re.compile(r"\b(BEDSHEET|BEDSEET|HOTPOT|TOWEL|DUFFAL|ELETRAL|WATER\s+JAR|CHOCOLATE)\b", re.IGNORECASE),
+    # OCR corruptions of non-pharma items (STELL BOWAL = STEEL BOWL, STEEL GLASS)
+    re.compile(r"\bSTELL?\s+BOW[AL]+\b", re.IGNORECASE),
+    re.compile(r"\bSTEEL\s+GLASS\b", re.IGNORECASE),
+    # Column-header artifact from OCR of table headers
+    re.compile(r"^Item\s+Name\b", re.IGNORECASE),
+    # Software licence rows
+    re.compile(r"\bSOFTWARE\s+LICEN", re.IGNORECASE),
+    # Receipt / near-expiry report lines
+    re.compile(r"^Receipt\s+Value\b", re.IGNORECASE),
+    re.compile(r"^Near\s+Expiry\s+Product\b", re.IGNORECASE),
+    # Medical store reference / receipt lines (e.g. SAHIL MEDICAL STOR FEROZEPU A001335)
+    re.compile(r"\bMEDICAL\s+STOR\b", re.IGNORECASE),
+    # Rows with 3 or fewer alphanumeric characters are too short to be a product
+    # (e.g. hr/, CV, AV, HO, PM --, MG, GM, EMK, EMO, EMX).
+    # Brand matching runs before this check, so 3-char brands (VIL, IKA, etc.) in the
+    # master are already classified as 0 before reaching pattern garbage.
+    re.compile(r"^[^A-Za-z0-9]*[A-Za-z0-9]{0,3}[^A-Za-z0-9]*$"),
+)
+
+# Vocabulary of document-structure / metadata words.
+# A row whose every alphabetic token belongs to this set — with no local brand
+# match — is structural garbage (a header, summary, total line, etc.).
+# Medicine-context tokens (TAB, CAP, INJ, MG, ML, …) are deliberately EXCLUDED
+# to avoid incorrectly flagging real product lines that carry those suffixes.
+METADATA_GARBAGE_VOCAB = {
+    # aggregations / totals
+    "TOTAL", "SUBTOTAL", "GRAND", "GRANDTOTAL", "VALUE", "QUANTITY", "QTY",
+    "AMOUNT", "NET", "GROSS", "SUM",
+    # financial
+    "MRP", "RATE", "DISCOUNT", "CREDIT", "DEBIT", "BALANCE",
+    "PURCHASE", "SALE", "SALES", "INVOICE", "RS",
+    # document / report structure
+    "PAGE", "REPORT", "SUMMARY", "ANALYSIS", "GROUP", "CATEGORY",
+    "DIVISION", "COMPANY", "SUPPLIER", "MANUFACTURER", "DISTRIBUTOR",
+    "DATE", "MONTH", "YEAR", "PERIOD", "CONTINUED",
+    # stock
+    "STOCK", "CLOSING", "OPENING", "CARRY", "FORWARD",
+    # column / header labels
+    "PRODUCT", "ITEM", "NAME", "PACKING", "PACK", "UNIT", "UOM",
+    "PACKG", "DETAIL", "DETAILS", "DESCRIPTION", "DESRIPTION",
+    "CODE", "TYPE", "SRNO", "SR", "ID", "NO", "COL", "BLANK", "HEADER",
+    "PARTICULARS", "PKG", "STRENGTH", "SCM",
+    # movement / ageing
+    "LAST", "CURRENT", "NEW", "MOVING", "NON", "ABOVE", "DAYS",
+    # month names — needed for rows like "LAST MONTH SALE MAY"
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+    "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    # common prepositions / conjunctions safe to include
+    "IN", "OF", "BY", "THE", "AND", "FOR", "TO", "AT", "FROM",
+    "THIS", "SUB", "WISE", "BRAND",
+    # misc garbage-header words
+    "STARTS", "HERE", "SECTION", "SCHEDULE", "SHELF",
+}
+
+# ---------------------------------------------------------------------------
+# MAYBE_PRODUCT patterns
+# A row matches MAYBE_PRODUCT when it contains a pharmaceutical dosage-form
+# token AND a quantity/strength signal, AND does NOT contain any structural
+# garbage keywords.  These rows are very likely real products that local brand
+# matching failed to confirm; they are written as MAYBE_PRODUCT for review.
+# ---------------------------------------------------------------------------
+
+# Signal 1: a recognised pharmaceutical dosage form anywhere in the row.
+MAYBE_PRODUCT_FORM_PATTERN = re.compile(
+    r"\b(TABS?|TABLETS?|CAPS?|CAPSULES?|SYP|SYRUP|INJ|INJN|OINT|OINTMENT|CREAM|GEL|"
+    r"DROPS?|LOTION|SUSP|SUSPENSION|SACHET?|SACH|POWDER|SPRAY|INHALER|PATCH|SYRINGE|"
+    r"VIAL|AMP|AMPULE|AMPOULE|SOLUTION|SOLN|SYR|SUS|SOL|PFS|LOZENGE|"
+    r"SUPPOSITORIES?|SUPPOS?|SUPPO|SUPP|ENEMA|EYE|EAR|NASAL|CHEWABLE|EFFERVESCENT)\b",
+    re.IGNORECASE,
+)
+
+# Signal 2: a numeric strength, pack count, or volume.
+# Includes * as a pack separator (e.g. 1*10) — widened from original MP1 pattern.
+MAYBE_PRODUCT_QTY_PATTERN = re.compile(
+    r"(\b\d+\.?\d*\s*(MG|MCG|IU|ML|GM|G)\b"      # strength: 500MG, 1.5ML, 100IU
+    r"|\b\d+\s*[xX*]\s*\d+\b"                      # pack: 1X10, 10X10, 1*10
+    r"|\b\d+['']?\s*[sS]\b"                         # count: 10S, 15s, 10'S, 15's
+    r"|\b\d+\s*(TAB|TABS|CAP|CAPS|VIAL|AMP)\b"     # qty+form: 10TAB, 1VIAL
+    r"|\b\d+\s*(ML|GM|G)\b"                         # volume/weight: 100ML, 30GM
+    r"|\b\d+\s*MD\b"                                # dose unit: 500MD, 1MD
+    r"|\bPCS\b)",                                   # pieces: PCS anywhere in row
+    re.IGNORECASE,
+)
+
+# Guard: if any of these structural keywords are present the row is too risky
+# to auto-promote (e.g. 'TOTAL CAL D3 TAB 1X20', 'DOXOLIN M TAB SALE DOM').
+MAYBE_PRODUCT_GUARD_PATTERN = re.compile(
+    r"\b(TOTAL|SALE|PURCHASE|INVOICE|STOCK|VALUE|REPORT|SUMMARY|IMPORT|CALL)\b",
+    re.IGNORECASE,
+)
+
+MAYBE_PRODUCT_BRAND_PATTERN = re.compile(
+    r"\b(DULCOFLEX)\b",
+    re.IGNORECASE,
+)
+
+
+def load_brands():
+    with open(BRANDS_FILE, "r", encoding="utf-8") as f:
+        return re.findall(r'"([^"]+)"', f.read())
+
+
+def normalize_text(value):
+    return re.sub(r"[^A-Z0-9]+", "", str(value).upper())
+
+
+def row_tokens(value):
+    return re.findall(r"[A-Z0-9]+", str(value).upper())
+
+
+def edit_distance_leq_one(a, b):
+    """Return the edit type when Levenshtein distance is <= 1, else None."""
+    if a == b:
+        return "exact"
+    if abs(len(a) - len(b)) > 1:
+        return None
+
+    if len(a) > len(b):
+        a, b = b, a
+        shorter_is_first = False
+    else:
+        shorter_is_first = True
+
+    i = 0
+    j = 0
+    edits = 0
+    mismatch_type = None
+    while i < len(a) and j < len(b):
+        if a[i] == b[j]:
+            i += 1
+            j += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return None
+        if len(a) == len(b):
+            mismatch_type = "1-substitution"
+            i += 1
+            j += 1
+        else:
+            mismatch_type = "1-insertion" if shorter_is_first else "1-deletion"
+            j += 1
+
+    if j < len(b) or i < len(a):
+        edits += 1
+        if len(a) == len(b):
+            mismatch_type = "1-substitution"
+        else:
+            mismatch_type = "1-insertion" if shorter_is_first else "1-deletion"
+
+    return mismatch_type if edits <= 1 else None
+
+
+def damerau_distance(a, b, max_dist=2):
+    """Damerau-Levenshtein distance between a and b, capped at max_dist.
+    Handles substitution, insertion, deletion, and adjacent transpositions.
+    Returns the integer distance if <= max_dist, else None.
+    Uses per-row early exit: if the minimum value in a completed DP row already
+    exceeds max_dist, the final distance provably exceeds max_dist too.
+    """
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if abs(la - lb) > max_dist:
+        return None
+
+    # DP table; initialised to a value larger than any real distance we'd accept
+    inf = la + lb + 1
+    dp = [[inf] * (lb + 1) for _ in range(la + 1)]
+    for i in range(la + 1):
+        dp[i][0] = i
+    for j in range(lb + 1):
+        dp[0][j] = j
+
+    for i in range(1, la + 1):
+        row_min = inf
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            dp[i][j] = min(
+                dp[i - 1][j] + 1,        # deletion
+                dp[i][j - 1] + 1,        # insertion
+                dp[i - 1][j - 1] + cost, # substitution
+            )
+            # adjacent transposition
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + 1)
+            if dp[i][j] < row_min:
+                row_min = dp[i][j]
+        # Early exit: if no cell in this row is <= max_dist, no path can succeed
+        if row_min > max_dist:
+            return None
+
+    dist = dp[la][lb]
+    return dist if dist <= max_dist else None
+
+
+def token_spans(name):
+    """Generate normalized consecutive token spans across the full row."""
+    tokens = row_tokens(name)
+    spans = []
+    for start in range(len(tokens)):
+        combined = ""
+        span_tokens = []
+        for end in range(start, len(tokens)):
+            span_tokens.append(tokens[end])
+            combined += tokens[end]
+            spans.append({
+                "tokens": tuple(span_tokens),
+                "text": " ".join(span_tokens),
+                "norm": combined,
+            })
+    return spans
+
+
+# Character sets of the normalized brand names, filled in by build_brand_index so
+# the fuzzy pre-filter does not rebuild them for every (brand, span) pair.
+# frozenset(brand_norm) is a pure function of brand_norm, so an entry stays
+# correct no matter how many brands share a normalized form.
+_BRAND_CHAR_SETS = {}
+
+
+def build_brand_index(brands):
+    index = [(brand, normalize_text(brand)) for brand in brands]
+    for _, brand_norm in index:
+        if brand_norm not in _BRAND_CHAR_SETS:
+            _BRAND_CHAR_SETS[brand_norm] = frozenset(brand_norm)
+    return index
+
+
+def exact_product_match(name, brand_index, precomputed_spans=None):
+    spans = precomputed_spans if precomputed_spans is not None else token_spans(name)
+    if not spans:
+        return None
+
+    for brand, brand_norm in brand_index:
+        if len(brand_norm) <= 3:
+            for span in spans:
+                if len(span["tokens"]) == 1 and span["norm"] == brand_norm:
+                    return {
+                        "brand": brand,
+                        "matched_text": span["text"],
+                        "match_type": "exact",
+                    }
+            continue
+        for span in spans:
+            if span["norm"] == brand_norm:
+                return {
+                    "brand": brand,
+                    "matched_text": span["text"],
+                    "match_type": "exact",
+                }
+    return None
+
+
+def fuzzy_product_match(name, brand_index, precomputed_spans=None):
+    spans = precomputed_spans if precomputed_spans is not None else token_spans(name)
+    if not spans:
+        return None
+
+    # Lower rank = better quality match; 2-edit is least preferred
+    rank = {
+        "1-substitution": 0,
+        "1-insertion": 1,
+        "1-deletion": 2,
+        "1-transposition": 3,
+        "2-edit": 4,
+    }
+    best_match = None
+
+    # One character set per span instead of one per (brand, span) pair. Parallel
+    # to `spans`, so the span visitation order inside the brand loop is unchanged.
+    span_sets = [frozenset(span["norm"]) for span in spans]
+
+    for brand, brand_norm in brand_index:
+        brand_len = len(brand_norm)
+        if brand_len <= 3:
+            continue  # 3-char brands handled exclusively by exact_product_match
+
+        # Adaptive threshold: 2 edits only for long brands (>= 10 chars) where
+        # accidental collisions with common English words are extremely unlikely.
+        # Brands 4-9 chars stay at <= 1 edit to prevent false positives.
+        max_edits = 2 if brand_len >= 10 else 1
+        brand_set = _BRAND_CHAR_SETS[brand_norm]
+
+        for span, span_set in zip(spans, span_sets):
+            span_norm = span["norm"]
+            span_len = len(span_norm)
+            if abs(span_len - brand_len) > max_edits:
+                continue
+
+            # --- Character-set pre-filter (set ops, runs before the O(m*n) DP) ---
+            # A character present in the span but absent from the brand has to be
+            # removed by a deletion or a substitution -- transpositions only reorder
+            # characters, they never remove one -- and distinct characters need
+            # distinct edits. So len(span_set - brand_set) is a lower bound on the
+            # Damerau-Levenshtein distance: a necessary condition, which means no
+            # pair the exact distance checks below would accept is rejected here.
+            if len(span_set - brand_set) > max_edits:
+                continue
+
+            # --- Try standard single-edit first for precise match type ---
+            match_type = edit_distance_leq_one(span_norm, brand_norm)
+            if match_type == "exact":
+                continue  # exact hits are handled by exact_product_match
+
+            if match_type is None:
+                # Could still be a transposition (DL dist == 1) or 2-edit (for long brands)
+                dist = damerau_distance(span_norm, brand_norm, max_dist=max_edits)
+                if dist is None:
+                    continue
+                if dist == 1:
+                    match_type = "1-transposition"
+                elif dist == 2 and brand_len >= 10:
+                    match_type = "2-edit"
+                else:
+                    continue
+
+            candidate = {
+                "brand": brand,
+                "matched_text": span["text"],
+                "match_type": match_type,
+            }
+            if best_match is None:
+                best_match = candidate
+                continue
+            current_rank = rank.get(candidate["match_type"], 99)
+            best_rank = rank.get(best_match["match_type"], 99)
+            if current_rank < best_rank:
+                best_match = candidate
+                continue
+            if current_rank == best_rank and len(span["norm"]) > len(normalize_text(best_match["matched_text"])):
+                best_match = candidate
+
+    return best_match
+
+
+def build_garbage_set():
+    garbage = {normalize_text(value) for value in EXACT_GARBAGE_ROWS}
+    garbage.add("")
+    return garbage
+
+
+def is_exact_garbage_row(name, garbage_rows):
+    return normalize_text(name) in garbage_rows
+
+
+def is_pattern_garbage_row(name):
+    text = str(name).strip()
+    return any(pattern.match(text) for pattern in SAFE_GARBAGE_PATTERNS)
+
+
+def is_metadata_garbage_row(name):
+    """Return True when every alphabetic token in the row is a known
+    document-structure / metadata word, indicating the row is a header,
+    summary, or total line rather than a real product entry."""
+    tokens = re.findall(r"[A-Z]+", str(name).upper())
+    if not tokens:
+        return False  # blank / numeric-only rows are handled elsewhere
+    return all(t in METADATA_GARBAGE_VOCAB for t in tokens)
+
+
+def is_maybe_product_row(name):
+    """Return True when a row looks like a real pharmaceutical product line
+    that local brand matching failed to confirm.
+
+    Requires AT LEAST ONE of:
+      - a dosage-form token (TAB, TABLET, SUPP, SYRINGE, INJ, CREAM, VIAL, …)
+      - a quantity or strength signal (MG, ML, NxN, N*N, NS, N'S, NMD, …)
+      - a known brand name that escaped brand detection (DULCOFLEX, …)
+    AND:
+      - absence of structural-garbage keywords (TOTAL, SALE, INVOICE, …)
+    """
+    if MAYBE_PRODUCT_GUARD_PATTERN.search(name):
+        return False
+    return (
+        bool(MAYBE_PRODUCT_FORM_PATTERN.search(name))
+        or bool(MAYBE_PRODUCT_QTY_PATTERN.search(name))
+        or bool(MAYBE_PRODUCT_BRAND_PATTERN.search(name))
+    )
+
+
+def fuzzy_garbage_match(name, garbage_rows):
+    row_norm = normalize_text(name)
+    if not row_norm:
+        return None
+
+    best_match = None
+    rank = {"exact": 0, "1-substitution": 1, "1-insertion": 2, "1-deletion": 3}
+
+    for garbage_phrase in EXACT_GARBAGE_ROWS:
+        garbage_norm = normalize_text(garbage_phrase)
+        if not garbage_norm:
+            continue
+        if abs(len(row_norm) - len(garbage_norm)) > 1:
+            continue
+        match_type = edit_distance_leq_one(row_norm, garbage_norm)
+        if not match_type or match_type == "exact":
+            continue
+        candidate = {
+            "garbage_phrase": garbage_phrase,
+            "match_type": match_type,
+        }
+        if best_match is None:
+            best_match = candidate
+            continue
+        current_rank = rank[candidate["match_type"]]
+        best_rank = rank[best_match["match_type"]]
+        if current_rank < best_rank:
+            best_match = candidate
+            continue
+        if current_rank == best_rank and len(garbage_norm) > len(normalize_text(best_match["garbage_phrase"])):
+            best_match = candidate
+
+    return best_match
+
+
+# ==========================================================================
+# SECTION 2: MAPPING STAGE (normalisation -> ranking)
+# Transplanted verbatim from mapping.py (logic unchanged).
+# ==========================================================================
+
+
+# ==========================================================================
+# RERANKER TRANSPORT -- PRESENT BUT DISABLED
+#
+# The reranker HTTP call from mapping.py, preserved verbatim and commented out.
+# No API key or endpoint is copied into this file, so nothing here can fire.
+# Re-enable by uncommenting this function and supplying HUGGINGFACE_API_KEY,
+# HUGGINGFACE_API_URL, MAX_OUTPUT_TOKENS, MODEL_NAME and REQUEST_TIMEOUT in
+# the CONFIG block (none of them are defined here).
+# ==========================================================================
+# def call_groq_llm(client, system_prompt: str, user_prompt: str, documents: list, verbose=False):
+#     """POST one reranker prompt to the Hugging Face Inference Providers router.
+#
+#     The historical name is kept deliberately: existing A/B harnesses disable the
+#     reranker by monkeypatching ``mapping.call_groq_llm``, and renaming it would
+#     make those patches silently ineffective. ``client`` stays unused, as before.
+#     """
+#     headers = {
+#         "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
+#         "Content-Type": "application/json",
+#     }
+#     payload = {
+#         "model": MODEL_NAME,
+#         "messages": [
+#             {"role": "system", "content": system_prompt},
+#             {"role": "user", "content": user_prompt},
+#         ],
+#         "temperature": 0,
+#         "max_tokens": MAX_OUTPUT_TOKENS,
+#         "stream": False,
+#     }
+#     try:
+#         resp = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload,
+#                              timeout=REQUEST_TIMEOUT)
+#         resp.raise_for_status()
+#         data = resp.json()
+#     except requests.RequestException as e:
+#         detail = ""
+#         if e.response is not None:
+#             try:
+#                 detail = f" — {e.response.text[:300]}"
+#             except Exception:
+#                 detail = ""
+#         raise RuntimeError(f"Hugging Face request failed: {e}{detail}")
+#     choices = data.get("choices", []) or []
+#     if not choices:
+#         raise RuntimeError(f"Empty Hugging Face response: {data}")
+#     top_text = str(choices[0].get("message", {}).get("content", "")).strip()
+#     usage = data.get("usage")
+#     if verbose:
+#         print(f"  Top text: {top_text}")
+#     return top_text, usage
+
+
+def call_groq_llm(*args, **kwargs):
+    """Hard stop: the reranker is disabled in this pipeline.
+
+    Kept as an active stub (rather than absent) so that any future code path
+    that reaches for the reranker fails loudly instead of silently degrading
+    into an unreranked guess.
+    """
+    raise RuntimeError(
+        "Reranker disabled in MAPPING_MAIN.py (PROCESSING_MODE='local'). "
+        "Rows needing the reranker are reported as NO_SUGGESTION / 0."
+    )
+
 
 INPUT_COLUMN  = "Input_Column"
 OUTPUT_COLUMN = "Output_Column"
@@ -1142,102 +1934,6 @@ def extract_all_sub_variants_from_data(brand_map: dict) -> set:
 
 
 # ============================================================================
-# FIX 3: find_potential_brands — compact-prefix boundary
-# ----------------------------------------------------------------------------
-# Without the boundary check, "OROFERSYP150ML".startswith("OROFERS") would
-# promote brand "OROFER S" when the user meant plain "OROFER" followed by
-# "SYP". Require the character AFTER the brand-compact prefix to be a digit
-# or end-of-string (letter = false positive).
-# ============================================================================
-def find_potential_brands(input_name: str, brand_map: dict) -> list:
-    input_upper = input_name.upper()
-    input_words = _normalize_strength_words(re.findall(r'\b[A-Z0-9]+\b', input_upper))
-    input_compact = _expand_strength_in_compact(compact_brand_token(input_upper))
-
-    potential = []
-
-    for brand, items in brand_map.items():
-        brand_upper = brand.upper().replace("-", " ").strip()
-        brand_words = _normalize_strength_words(brand_upper.split())
-        brand_compact = _expand_strength_in_compact(compact_brand_token(brand))
-
-        brand_pattern = r'\b' + re.escape(brand_upper) + r'\b'
-        if re.search(brand_pattern, input_upper):
-            extra_words = brand_words - input_words
-            if not extra_words:
-                potential.append((brand, items, 3))
-            else:
-                potential.append((brand, items, 1))
-            continue
-
-        flexible_brand_pattern = build_flexible_brand_pattern(brand)
-        if flexible_brand_pattern and re.search(flexible_brand_pattern, input_upper):
-            potential.append((brand, items, 4))
-            continue
-
-        # --- FIX 3: compact-prefix match requires digit or EOS boundary.
-        if brand_compact and input_compact.startswith(brand_compact):
-            remainder = input_compact[len(brand_compact):]
-            if not remainder or remainder[0].isdigit():
-                potential.append((brand, items, 3))
-                continue
-            # Letter remainder → reject (brand is a prefix of a longer alpha word)
-
-        if brand_words.issubset(input_words):
-            potential.append((brand, items, 2))
-            continue
-
-        brand_first_word = brand_upper.split()[0] if brand_upper.split() else ""
-        if brand_first_word and brand_first_word in input_words:
-            potential.append((brand, items, 0))
-
-    potential.sort(key=lambda x: (-x[2], len(x[0])))
-    return [(brand, items) for brand, items, _ in potential]
-
-
-def group_related_brands(primary_brand: str, brand_map: dict, input_name: str = "", verbose=False) -> list:
-    primary_upper = primary_brand.upper().replace("-", " ").strip()
-    input_words = _normalize_strength_words(re.findall(r'\b[A-Z0-9]+\b', input_name.upper())) if input_name else set()
-    grouped_items = []
-    related_brands = []
-    primary_parts = primary_upper.split()
-    primary_root = primary_parts[0] if primary_parts else ""
-    for brand, items in brand_map.items():
-        brand_upper = brand.upper().replace("-", " ").strip()
-        if brand_upper == primary_upper:
-            grouped_items.extend(items)
-            related_brands.append(brand)
-        elif brand_upper.startswith(primary_upper + " "):
-            primary_words = _normalize_strength_words(primary_upper.split())
-            brand_words = _normalize_strength_words(brand_upper.split())
-            extra_words = {
-                word for word in (brand_words - primary_words)
-                if word not in _pack_form_skip_tokens()
-            }
-            if not extra_words or (input_words and extra_words.issubset(input_words)):
-                grouped_items.extend(items)
-                related_brands.append(brand)
-            elif verbose:
-                print(f"    ⚠ Skipping sub-brand '{brand}' — extra words {extra_words} not in input")
-        elif primary_root:
-            brand_parts = brand_upper.split()
-            brand_root = brand_parts[0] if brand_parts else ""
-            if brand_root == primary_root:
-                extra_words = {
-                    word for word in _normalize_strength_words(brand_parts[1:])
-                    if word not in _pack_form_skip_tokens()
-                }
-                if extra_words and input_words and extra_words.issubset(input_words):
-                    grouped_items.extend(items)
-                    related_brands.append(brand)
-    if verbose and len(related_brands) > 1:
-        print(f"\n  Found {len(related_brands)} related brands:")
-        for rb in sorted(related_brands):
-            print(f"    - '{rb}' ({len(brand_map[rb])} products)")
-    return grouped_items
-
-
-# ============================================================================
 # FIX 4: abbreviated sub-brand promotion
 # ----------------------------------------------------------------------------
 # "CARDACE-MET 5 TAB" picks plain CARDACE because METO's 2nd word "METO"
@@ -1554,36 +2250,6 @@ def find_unmatched_qualifier_tokens(input_name: str, brand: str,
     return orphans
 
 
-def find_abbrev_promoted_brand(input_name: str, matched_brand: str, brand_map: dict) -> str:
-    if not matched_brand or not brand_map:
-        return None
-    input_upper = str(input_name or "").upper()
-    matched_upper = str(matched_brand).upper().replace("-", " ").strip()
-    if not matched_upper:
-        return None
-    bm = re.search(r'\b' + re.escape(matched_upper) + r'\b', input_upper)
-    if not bm:
-        return None
-    tail_match = re.match(r'[\s\-]*([A-Z]{2,})\b', input_upper[bm.end():])
-    if not tail_match:
-        return None
-    abbrev_token = tail_match.group(1)
-    if abbrev_token in _pack_form_skip_tokens():
-        return None
-    prefix = matched_upper + " "
-    candidates = []
-    for brand in brand_map.keys():
-        b_upper = str(brand).upper().replace("-", " ").strip()
-        if b_upper == matched_upper or not b_upper.startswith(prefix):
-            continue
-        next_word = b_upper[len(prefix):].split()[0] if b_upper[len(prefix):] else ""
-        if len(next_word) < 2:
-            continue
-        if next_word.startswith(abbrev_token) or abbrev_token.startswith(next_word):
-            candidates.append(brand)
-    return candidates[0] if len(candidates) == 1 else None
-
-
 # ============================================================================
 # FIX 4b: filter_items_by_product_name_abbrev — fallback for Scenario B
 # ----------------------------------------------------------------------------
@@ -1661,178 +2327,6 @@ def filter_items_by_product_name_abbrev(input_name: str, brand_name: str,
             filtered_items = narrowed
 
     return filtered_items
-
-
-def find_best_brand_for_input(input_name: str, brand_map: dict, verbose=False) -> tuple:
-    if verbose:
-        print("\n" + "="*80)
-        print("STEP 1: BRAND DETECTION")
-        print("="*80)
-        print(f"Input name: '{input_name}'")
-
-    potential = find_potential_brands(input_name, brand_map)
-
-    if verbose:
-        print(f"\nPattern matching found {len(potential)} potential brand(s):")
-        for i, (brand, items) in enumerate(potential[:5], 1):
-            print(f"  {i}. '{brand}' ({len(items)} products)")
-
-    input_upper = input_name.upper().replace("-", " ")
-    input_words = _normalize_strength_words(re.findall(r'\b[A-Z0-9]+\b', input_upper))
-    input_compact = _expand_strength_in_compact(compact_brand_token(input_name))
-
-    def _brand_position(brand_name: str) -> int:
-        brand_upper = str(brand_name or "").upper().replace("-", " ").strip()
-        if not brand_upper:
-            return 10**6
-        m = re.search(r'\b' + re.escape(brand_upper) + r'\b', input_upper)
-        if m:
-            return m.start()
-        brand_compact = _expand_strength_in_compact(compact_brand_token(brand_name))
-        if brand_compact:
-            compact_pos = input_compact.find(brand_compact)
-            if compact_pos >= 0:
-                return compact_pos
-        return 10**6
-
-    input_joins = _input_compact_joins(input_name)   # 'D 3' → 'D3' etc.
-    filtered_potential = []
-    for brand, items in potential:
-        brand_upper = brand.upper().replace("-", " ")
-        brand_words = _normalize_strength_words(brand_upper.split())
-        brand_compact = _expand_strength_in_compact(compact_brand_token(brand))
-        # A word like 'D3' is NOT "extra" if the input has it split as 'D 3'.
-        extra_words = {w for w in (brand_words - input_words)
-                       if compact_brand_token(w) not in input_joins}
-
-        # --- FIX 3 (second half): compact match must also honour boundary rule
-        compact_match = False
-        if brand_compact and input_compact.startswith(brand_compact):
-            remainder = input_compact[len(brand_compact):]
-            if not remainder or remainder[0].isdigit():
-                compact_match = True
-
-        if extra_words and not compact_match:
-            if verbose:
-                print(f"  ✗ Rejecting '{brand}' - extra words: {extra_words}")
-            continue
-        filtered_potential.append((brand, items))
-
-    if filtered_potential:
-        filtered_potential.sort(key=lambda x: (_brand_position(x[0]), -len(x[0])))
-        selected_brand, _ = filtered_potential[0]
-
-        # --- FIX 4: abbreviated sub-brand promotion
-        promoted = find_abbrev_promoted_brand(input_name, selected_brand, brand_map)
-        if promoted and promoted != selected_brand:
-            if verbose:
-                print(f"\n✓ Promoted '{selected_brand}' → '{promoted}' "
-                      f"(input contains abbreviation of sub-brand)")
-            selected_brand = promoted
-
-        if verbose:
-            print(f"\n✓ Selected brand: '{selected_brand}'")
-        grouped_items = group_related_brands(selected_brand, brand_map,
-                                             input_name=input_name, verbose=verbose)
-        return selected_brand, grouped_items
-
-    if not potential:
-        input_norm = norm(input_name)
-        brand_query_norm = norm(extract_brand_like_query(input_name))
-        if verbose:
-            print(f"\nFuzzy matching against {len(brand_map)} brands...")
-        all_brands = list(brand_map.keys())
-        candidate_brands = []
-        for brand in all_brands:
-            brand_upper = brand.upper().replace("-", " ")
-            brand_first_word = brand_upper.split()[0] if brand_upper.split() else ""
-            if not brand_first_word or brand_first_word in input_upper or len(brand.split()) == 1:
-                candidate_brands.append(brand)
-        if not candidate_brands:
-            candidate_brands = all_brands
-        best = None
-        best_source = "fuzzy"
-        # Brand ROOT = first token of the brand-like query. Lets a typo'd brand
-        # followed by a sub-brand still match (e.g. 'CORDACE PROTECT' → 'CARDACE':
-        # the full 2-token query scores too low, but root 'CORDACE'~'CARDACE' is
-        # a clean 1-edit hit). FIX 4b then resolves the 'PROTECT' sub-brand.
-        brand_root_norm = brand_query_norm.split()[0] if brand_query_norm else ""
-        # Distinctive tokens (len>=4): lets a typo in a NON-first token still match
-        # ('S NUNLO' → token 'NUNLO' ~ brand 'NUMLO', 1 edit; the leading 'S' is a
-        # salt prefix, not the brand).
-        brand_tokens_norm = [t for t in brand_query_norm.split() if len(t) >= 4]
-        if brand_query_norm:
-            best = process.extractOne(
-                brand_query_norm, candidate_brands,
-                scorer=fuzz.ratio,
-                score_cutoff=BRAND_NAME_NEXTSTEP_SCORE,
-            )
-            if best:
-                best_source = "brand-only"
-        for fuzzy_query in [brand_query_norm, brand_root_norm, *brand_tokens_norm, input_norm]:
-            if best:
-                break
-            if not fuzzy_query:
-                continue
-            best = process.extractOne(
-                fuzzy_query, candidate_brands,
-                scorer=fuzz.token_sort_ratio,
-                score_cutoff=FUZZY_MIN_SCORE,
-            )
-            if best:
-                break
-        if not best:
-            for fuzzy_query in [brand_query_norm, brand_root_norm, *brand_tokens_norm]:
-                if not fuzzy_query:
-                    continue
-                best = process.extractOne(
-                    fuzzy_query, candidate_brands,
-                    scorer=JaroWinkler.normalized_similarity,
-                    score_cutoff=JW_MIN_SCORE,
-                )
-                if best:
-                    best_source = "jaro-winkler"
-                    break
-        if best:
-            best_brand, score, _ = best
-            # Reject a fuzzy hit that is merely a sub-token of the input brand
-            # (e.g. input 'AVIL' → master 'VIL'): a different brand, not a typo.
-            if is_substring_brand_reject(extract_brand_like_query(input_name), best_brand):
-                if verbose:
-                    print(f"\n✗ Rejecting fuzzy brand '{best_brand}' — it is a sub-token "
-                          f"of the input brand (different brand, not a typo)")
-                return None, None
-            # Reject a fuzzy hit that is too many character edits from the brand
-            # the user typed (e.g. 'CETZINE' → 'CETIRIZINE' = 3 edits = generic
-            # name, not the brand). Compare against the full brand-like query AND
-            # its root token; the closest must be within BRAND_FUZZY_MAX_EDITS.
-            cand_compact = compact_brand_token(best_brand)
-            edit_dists = [
-                Levenshtein.distance(compact_brand_token(q), cand_compact)
-                for q in (extract_brand_like_query(input_name), brand_root_norm, *brand_tokens_norm)
-                if compact_brand_token(q)
-            ]
-            if edit_dists and min(edit_dists) > BRAND_FUZZY_MAX_EDITS:
-                if verbose:
-                    print(f"\n✗ Rejecting fuzzy brand '{best_brand}' — {min(edit_dists)} "
-                          f"edits from input brand (> {BRAND_FUZZY_MAX_EDITS}); "
-                          f"different brand, not a typo")
-                return None, None
-            # Also apply abbreviation promotion after fuzzy match
-            promoted = find_abbrev_promoted_brand(input_name, best_brand, brand_map)
-            if promoted and promoted != best_brand:
-                if verbose:
-                    print(f"\n✓ Promoted fuzzy match '{best_brand}' → '{promoted}'")
-                best_brand = promoted
-            if verbose:
-                if best_source == "brand-only":
-                    print(f"\n✓ Brand-only high-confidence match: '{best_brand}' (score: {score})")
-                else:
-                    print(f"\n✓ Fuzzy match: '{best_brand}' (score: {score})")
-            grouped_items = group_related_brands(best_brand, brand_map,
-                                                 input_name=input_name, verbose=verbose)
-            return best_brand, grouped_items
-    return None, None
 
 
 # =========================
@@ -2696,11 +3190,9 @@ def detect_dosage_form_in_product(product_name: str) -> set:
         (r'\bTABLETS?\b|\bTABS?\.?\b', 'TABLET'),
         (r'\bCAPSULES?\b|\bCAPS?\.?\b', 'CAPSULE'),
         # inj = vial (and amp/pfs/I.V.) — all injection
-        # (r'\bINJECTIONS?\b|\bINJ\.?\b|\bVIAL\b|\bPFS\b|\bAMPS?\b|\bSYR\.?\b|\bI\.?V\.?\b', 'INJECTION'),
-        (r'\bINJECTIONS?\b|\bINJ\.?\b|\bING\.?\b|\d+INJ\b|\bVIAL\b|\bPFS\b|\bAMPS?\b|\bI\.?V\.?\b', 'INJECTION'),
+        (r'\bINJECTIONS?\b|\bINJ\.?\b|\bVIAL\b|\bPFS\b|\bAMPS?\b|\bSYR\.?\b|\bI\.?V\.?\b', 'INJECTION'),
         # syp/syrup = suspension (treated as one liquid-oral form per spec)
-        # (r'\bSUSPENSIONS?\b|\bSUSP\.?\b|\bSUSPN\b|\bSYRUPS?\b|\bSYP\.?\b', 'SUSPENSION'),
-        (r'\bSUSPENSIONS?\b|\bSUSP\.?\b|\bSUSPN\b|\bSYRUPS?\b|\bSYP\.?\b|\d+SYP\b|\bSYR\.?\b|\d+SYR\.?\b', 'SUSPENSION'),
+        (r'\bSUSPENSIONS?\b|\bSUSP\.?\b|\bSUSPN\b|\bSYRUPS?\b|\bSYP\.?\b', 'SUSPENSION'),
         (r'\bDROPS?\b', 'DROPS'),
         (r'\bCREAMS?\b', 'CREAM'),
         (r'\bOINTMENTS?\b', 'OINTMENT'),
@@ -3053,62 +3545,6 @@ def build_rerank_documents(items: list) -> list:
 
 
 # =========================
-# API CALL
-# =========================
-def llm_enabled() -> bool:
-    """True when PROCESSING_MODE allows the reranker API to be called.
-
-    PROCESSING_MODE is read at call time, not captured at import, so a test
-    harness can set the mode on the imported module before running rows.
-    """
-    return PROCESSING_MODE in ("llm", "both")
-
-
-def call_groq_llm(client, system_prompt: str, user_prompt: str, documents: list, verbose=False):
-    """POST one reranker prompt to the Hugging Face Inference Providers router.
-
-    The historical name is kept deliberately: existing A/B harnesses disable the
-    reranker by monkeypatching ``mapping.call_groq_llm``, and renaming it would
-    make those patches silently ineffective. ``client`` stays unused, as before.
-    """
-    headers = {
-        "Authorization": f"Bearer {HUGGINGFACE_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": MODEL_NAME,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0,
-        "max_tokens": MAX_OUTPUT_TOKENS,
-        "stream": False,
-    }
-    try:
-        resp = requests.post(HUGGINGFACE_API_URL, headers=headers, json=payload,
-                             timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except requests.RequestException as e:
-        detail = ""
-        if e.response is not None:
-            try:
-                detail = f" — {e.response.text[:300]}"
-            except Exception:
-                detail = ""
-        raise RuntimeError(f"Hugging Face request failed: {e}{detail}")
-    choices = data.get("choices", []) or []
-    if not choices:
-        raise RuntimeError(f"Empty Hugging Face response: {data}")
-    top_text = str(choices[0].get("message", {}).get("content", "")).strip()
-    usage = data.get("usage")
-    if verbose:
-        print(f"  Top text: {top_text}")
-    return top_text, usage
-
-
-# =========================
 # FUZZY MATCHING
 # =========================
 def find_best_match_with_fuzzy(llm_response: str, items: list, verbose=False) -> tuple:
@@ -3254,27 +3690,6 @@ TOP_N_SUGGESTIONS = 3
 NO_BRAND_RECOVERY_MAX_EDITS = 1
 
 
-def nearest_brand_within_edits(input_name, suggestions, max_edits=NO_BRAND_RECOVERY_MAX_EDITS):
-    """From the nearest-brand suggestions, return (suggestion, distance) for the
-    one whose brand name is closest to the input's brand-like query, but only if
-    that character-edit distance is <= max_edits. Otherwise (None, distance/None).
-    """
-    query = compact_brand_token(extract_brand_like_query(input_name))
-    if not query:
-        return None, None
-    best, best_dist = None, None
-    for s in suggestions or []:
-        cand = compact_brand_token(s.get("brand", ""))
-        if not cand:
-            continue
-        dist = Levenshtein.distance(query, cand)
-        if best_dist is None or dist < best_dist:
-            best, best_dist = s, dist
-    if best is not None and best_dist is not None and best_dist <= max_edits:
-        return best, best_dist
-    return None, best_dist
-
-
 def make_result(output, product_code="", status="MATCHED", confidence="HIGH",
                 candidate_count=0, suggestions=None):
     return {
@@ -3302,40 +3717,6 @@ def build_item_suggestions(items, input_name, top_n=TOP_N_SUGGESTIONS):
     if not items:
         return []
     return _suggestions_from_ranked(rank_local_candidates(items, input_name), top_n)
-
-
-def suggest_nearest_brands(input_name, brand_map, top_n=TOP_N_SUGGESTIONS):
-    """Best-effort suggestions when no brand could be identified at all:
-    fuzzy-match the brand-like query against every master brand and return,
-    for each nearest brand, its best product for this input."""
-    if not brand_map:
-        return []
-    query = norm(extract_brand_like_query(input_name)) or norm(input_name)
-    if not query:
-        return []
-    norm_to_brand = {}
-    for brand in brand_map.keys():
-        norm_to_brand.setdefault(norm(brand), brand)
-    matches = process.extract(
-        query, list(norm_to_brand.keys()),
-        scorer=fuzz.token_sort_ratio, limit=top_n,
-    )
-    brand_query = extract_brand_like_query(input_name)
-    out = []
-    for norm_brand, score, _ in matches:
-        brand = norm_to_brand[norm_brand]
-        # Skip sub-token brands (input 'AVIL' must not recover to 'VIL').
-        if is_substring_brand_reject(brand_query, brand):
-            continue
-        brand_items = brand_map.get(brand, [])
-        best = choose_best_local_candidate(brand_items, input_name) if brand_items else None
-        out.append({
-            "brand": brand,
-            "product": best["product"] if best else brand,
-            "product_code": best.get("product_code", "") if best else "",
-            "score": round(float(score), 1),
-        })
-    return out
 
 
 def format_suggestions(suggestions):
@@ -3454,49 +3835,39 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                 if verbose:
                     print(f"\n  [forced_brand] Using hint '{brand}' (normalised) — {len(items)} candidates")
             else:
-                # Hint supplied but not in brand_map — fall back to auto-detect if enabled
-                if auto_detect:
-                    if verbose:
-                        print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → auto-detecting brand")
-                    brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
-                else:
-                    if verbose:
-                        print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → NO_CLEAR_MATCH")
-                    return make_result("NO_CLEAR_MATCH", "",
-                                       status="NO_BRAND", confidence="NONE",
-                                       candidate_count=0, suggestions=[])
+                # Hint supplied but not in brand_map.
+                # BRAND SOURCE: garbage_check only.  mapping.py's own brand
+                # detection (find_best_brand_for_input / find_potential_brands /
+                # group_related_brands / find_abbrev_promoted_brand) and its
+                # nearest-brand recovery (suggest_nearest_brands /
+                # nearest_brand_within_edits) are deliberately NOT carried into
+                # this combined pipeline, so there is no second, independent
+                # brand matcher. A brand hint that is not in the master is a
+                # dead end -> NO_CLEAR_MATCH, never a guessed brand.
+                if verbose:
+                    print(f"  [forced_brand] Hint '{forced_brand}' not in brand_map → NO_CLEAR_MATCH")
+                return make_result("NO_CLEAR_MATCH", "",
+                                   status="NO_BRAND", confidence="NONE",
+                                   candidate_count=0, suggestions=[])
     else:
-        # No brand hint — use auto-detection for MAYBE_PRODUCT rows
-        if auto_detect:
-            if verbose:
-                print(f"  [auto_detect] No brand hint — running auto brand detection for '{input_name[:50]}'")
-            brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
-        else:
-            if verbose:
-                print(f"  [forced_brand] No brand hint for '{input_name[:50]}' → NO_CLEAR_MATCH")
-            return make_result("NO_CLEAR_MATCH", "",
-                               status="NO_BRAND", confidence="NONE",
-                               candidate_count=0, suggestions=[])
+        # No brand hint. Only garbage_check-confirmed product rows reach this
+        # function, and those always carry a brand, so this is the defensive
+        # path. auto_detect is unsupported here (see BRAND SOURCE note above).
+        if verbose:
+            print(f"  [forced_brand] No brand hint for '{input_name[:50]}' → NO_CLEAR_MATCH")
+        return make_result("NO_CLEAR_MATCH", "",
+                           status="NO_BRAND", confidence="NONE",
+                           candidate_count=0, suggestions=[])
 
     if not brand:
-        suggestions = suggest_nearest_brands(input_name, brand_map)
-        # Auto-recover ONLY when a master brand is within NO_BRAND_RECOVERY_MAX_EDITS
-        # character edits of the brand the user typed (a typo). A larger gap means
-        # a genuinely different brand → strict NO_CLEAR_MATCH, no guessed mapping.
-        top, dist = nearest_brand_within_edits(input_name, suggestions)
-        if top and top.get("product"):
-            if verbose:
-                print(f"\nRECOVERED (no brand) → '{top['product']}' "
-                      f"(brand '{top.get('brand','')}' within {dist} edit(s))")
-            return make_result(top["product"], top.get("product_code", ""),
-                               status="RECOVERED_NO_BRAND", confidence="LOW",
-                               candidate_count=0, suggestions=suggestions)
-        if verbose:
-            print(f"\nNO_CLEAR_MATCH: no brand within {NO_BRAND_RECOVERY_MAX_EDITS} "
-                  f"edits (nearest gap {dist})")
+        # Unreachable with the branches above (brand is set or the function has
+        # already returned), kept as a strict terminator. The RECOVERED_NO_BRAND
+        # edit-distance recovery that used to live here is removed together with
+        # mapping.py's brand matching: no product code is ever produced from a
+        # brand that garbage_check did not confirm.
         return make_result("NO_CLEAR_MATCH", "", status="NO_BRAND",
                            confidence="NONE", candidate_count=0,
-                           suggestions=suggestions)
+                           suggestions=[])
 
     # Step 1.5: Compound token pre-filter
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
@@ -3729,474 +4100,394 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                            confidence="NONE", candidate_count=candidate_count,
                            suggestions=local_suggestions)
 
-    final_prompt = USER_PROMPT_TEMPLATE.format(
-        input_name=input_name_llm,
-        brand_context=brand_context,
-    )
-    candidate_count = len(rerank_documents)
-    LLM_REQUEST_ATTEMPTS += 1
-    try:
-        answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
-                                              rerank_documents, verbose=verbose)
-    except Exception as e:
-        print(f"  API Error: {e}")
-        if local_best_item:
-            return make_result(local_best_item["product"],
-                               local_best_item.get("product_code", ""),
-                               status="RECOVERED_API_ERROR", confidence="LOW",
-                               candidate_count=candidate_count,
-                               suggestions=local_suggestions)
-        return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
-                           confidence="NONE", candidate_count=candidate_count,
-                           suggestions=local_suggestions)
-
-    REQ_COUNT += 1
-    if usage:
-        pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
-              else getattr(usage, "prompt_tokens", 0)) or 0
-        ct = (usage.get("completion_tokens") if isinstance(usage, dict)
-              else getattr(usage, "completion_tokens", 0)) or 0
-        tt = (usage.get("total_tokens") if isinstance(usage, dict)
-              else getattr(usage, "total_tokens", 0)) or (pt + ct)
-        SUM_PROMPT_TOKENS += pt
-        SUM_COMPLETION_TOKENS += ct
-        SUM_TOTAL_TOKENS += tt
-
-    answer = answer.strip()
-    if "NO_CLEAR_MATCH" in answer.upper():
-        if local_best_item:
-            if verbose:
-                print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
-            return make_result(local_best_item["product"],
-                               local_best_item.get("product_code", ""),
-                               status="RECOVERED_LLM_REJECTED", confidence="LOW",
-                               candidate_count=candidate_count,
-                               suggestions=local_suggestions)
-        return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
-                           confidence="NONE", candidate_count=candidate_count,
-                           suggestions=local_suggestions)
-
-    matched_item, match_type = find_best_match_with_fuzzy(answer, items, verbose=verbose)
-    if not matched_item:
-        if local_best_item:
-            if verbose:
-                print(f"\nRECOVERED (reranker answer unmatched) → '{local_best_item['product']}'")
-            return make_result(local_best_item["product"],
-                               local_best_item.get("product_code", ""),
-                               status="RECOVERED_LLM_UNMATCHED", confidence="LOW",
-                               candidate_count=candidate_count,
-                               suggestions=local_suggestions)
-        return make_result("NO_CLEAR_MATCH", "", status="LLM_UNMATCHED",
-                           confidence="NONE", candidate_count=candidate_count,
-                           suggestions=local_suggestions)
-
-    matched_product_name = matched_item["product"]
-    product_code = matched_item.get("product_code", "")
-    matched_pack_size = matched_item.get("pack_size", "")
-
-    if verbose:
-        print("\n" + "="*80)
-        print(f"FINAL: {matched_product_name}  (via {match_type})")
-        print("="*80)
-    match_confidence = "HIGH" if match_type == "exact" else "MEDIUM"
-    return make_result(matched_product_name, product_code,
-                       status="MATCHED", confidence=match_confidence,
-                       candidate_count=candidate_count, suggestions=local_suggestions)
-
-
-def suggest_local_match(input_name: str, brand_map: dict, verbose=False) -> tuple:
-    raw_input_name = input_name
-    input_name = clean_duplicate_words(input_name)
-    input_name = strip_parenthetical_noise(input_name)
-    brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
-    if not brand or not items:
-        return "NO_CLEAR_MATCH", ""
-    compound_tokens = extract_brand_suffix_tokens(input_name, brand)
-    compound_token_digits = get_compound_token_digits(compound_tokens)
-    compound_token_letters = set()
-    for token in compound_tokens:
-        letters = re.sub(r'\d', '', token)
-        if letters:
-            compound_token_letters.add(letters)
-    if compound_tokens:
-        items = filter_items_by_compound_tokens(items, compound_tokens, verbose=verbose)
-    items = filter_items_by_product_name_abbrev(input_name, brand, items, verbose=verbose)
-    brand_scope_items = list(items)
-    available_variants, available_sub_variants, _ = extract_available_attributes_from_items(brand_scope_items)
-    detected_variants = detect_variants_in_input(
-        input_name, brand, available_variants,
-        compound_token_letters=compound_token_letters, verbose=verbose)
-    items = filter_items_by_variant(items, detected_variants,
-                                     reference_items=brand_scope_items, verbose=verbose)
-    detected_sub_variants = detect_sub_variants_in_input(
-        input_name, brand, available_sub_variants, available_variants,
-        compound_token_digits=compound_token_digits, verbose=verbose)
-    items = filter_items_by_sub_variant(items, detected_sub_variants, input_name,
-                                         reference_items=brand_scope_items, verbose=verbose)
-    detected_forms = detect_dosage_form_in_input(input_name, verbose=verbose)
-    items = prioritize_by_dosage_form(items, detected_forms, verbose=verbose)
-    input_pack_size = extract_pack_size_from_input(input_name)
-    items = filter_items_by_pack_size(items, input_pack_size,
-                                       reference_items=brand_scope_items, verbose=verbose)
-    items = apply_galact_granules_rules(
-        items,
-        brand,
-        brand_scope_items,
-        input_name,
-        raw_input_name,
-        detected_variants,
-        detected_sub_variants,
-        input_pack_size,
-        verbose=verbose,
-    )
-    best_item = choose_best_local_candidate(items, input_name)
-    if not best_item:
-        return "NO_CLEAR_MATCH", ""
-    return best_item["product"], best_item.get("product_code", "")
+    # ======================================================================
+    # Step 6 (continued): reranker / LLM path -- PRESENT BUT DISABLED.
+    #
+    # PROCESSING_MODE is pinned to "local" in this file, so llm_enabled() is
+    # always False and the branch above always returns. The original reranker
+    # code is preserved verbatim below, commented out, so it can be re-enabled
+    # without re-deriving it. Re-enabling requires all of:
+    #   * PROCESSING_MODE = "llm" (or "both") in the CONFIG block
+    #   * the reranker credentials/endpoint config (HUGGINGFACE_API_KEY,
+    #     HUGGINGFACE_API_URL, MAX_OUTPUT_TOKENS, MODEL_NAME, REQUEST_TIMEOUT)
+    #     -- deliberately NOT copied
+    #     into this file
+    #   * the commented-out call_groq_llm() definition above
+    #   * a non-empty MAPPING_LLM_PROMPT (currently blank by design)
+    # Until then, every row that would need the reranker to decide is reported
+    # as NO_SUGGESTION / 0 by decide_output(); an unreranked local candidate is
+    # never promoted to a product code.
+    # ======================================================================
+    # final_prompt = USER_PROMPT_TEMPLATE.format(
+        # input_name=input_name_llm,
+        # brand_context=brand_context,
+    # )
+    # candidate_count = len(rerank_documents)
+    # LLM_REQUEST_ATTEMPTS += 1
+    # try:
+        # answer, usage = call_groq_llm(client, SYSTEM_PROMPT, final_prompt,
+                                              # rerank_documents, verbose=verbose)
+    # except Exception as e:
+        # print(f"  API Error: {e}")
+        # if local_best_item:
+            # return make_result(local_best_item["product"],
+                               # local_best_item.get("product_code", ""),
+                               # status="RECOVERED_API_ERROR", confidence="LOW",
+                               # candidate_count=candidate_count,
+                               # suggestions=local_suggestions)
+        # return make_result(f"API_ERROR: {str(e)[:50]}", "", status="API_ERROR",
+                           # confidence="NONE", candidate_count=candidate_count,
+                           # suggestions=local_suggestions)
+    #
+    # REQ_COUNT += 1
+    # if usage:
+        # pt = (usage.get("prompt_tokens") if isinstance(usage, dict)
+              # else getattr(usage, "prompt_tokens", 0)) or 0
+        # ct = (usage.get("completion_tokens") if isinstance(usage, dict)
+              # else getattr(usage, "completion_tokens", 0)) or 0
+        # tt = (usage.get("total_tokens") if isinstance(usage, dict)
+              # else getattr(usage, "total_tokens", 0)) or (pt + ct)
+        # SUM_PROMPT_TOKENS += pt
+        # SUM_COMPLETION_TOKENS += ct
+        # SUM_TOTAL_TOKENS += tt
+    #
+    # answer = answer.strip()
+    # if "NO_CLEAR_MATCH" in answer.upper():
+        # if local_best_item:
+            # if verbose:
+                # print(f"\nRECOVERED (LLM said NO_CLEAR_MATCH) → '{local_best_item['product']}'")
+            # return make_result(local_best_item["product"],
+                               # local_best_item.get("product_code", ""),
+                               # status="RECOVERED_LLM_REJECTED", confidence="LOW",
+                               # candidate_count=candidate_count,
+                               # suggestions=local_suggestions)
+        # return make_result("NO_CLEAR_MATCH", "", status="LLM_REJECTED",
+                           # confidence="NONE", candidate_count=candidate_count,
+                           # suggestions=local_suggestions)
+    #
+    # matched_item, match_type = find_best_match_with_fuzzy(answer, items, verbose=verbose)
+    # if not matched_item:
+        # if local_best_item:
+            # if verbose:
+                # print(f"\nRECOVERED (reranker answer unmatched) → '{local_best_item['product']}'")
+            # return make_result(local_best_item["product"],
+                               # local_best_item.get("product_code", ""),
+                               # status="RECOVERED_LLM_UNMATCHED", confidence="LOW",
+                               # candidate_count=candidate_count,
+                               # suggestions=local_suggestions)
+        # return make_result("NO_CLEAR_MATCH", "", status="LLM_UNMATCHED",
+                           # confidence="NONE", candidate_count=candidate_count,
+                           # suggestions=local_suggestions)
+    #
+    # matched_product_name = matched_item["product"]
+    # product_code = matched_item.get("product_code", "")
+    # matched_pack_size = matched_item.get("pack_size", "")
+    #
+    # if verbose:
+        # print("\n" + "="*80)
+        # print(f"FINAL: {matched_product_name}  (via {match_type})")
+        # print("="*80)
+    # match_confidence = "HIGH" if match_type == "exact" else "MEDIUM"
+    # return make_result(matched_product_name, product_code,
+                       # status="MATCHED", confidence=match_confidence,
+                       # candidate_count=candidate_count, suggestions=local_suggestions)
+    # Strict terminator. Not reachable while PROCESSING_MODE == "local"; it
+    # exists so process_product() can never fall off the end returning None.
+    return make_result("NO_CLEAR_MATCH", "", status="LOCAL_ONLY_UNRESOLVED",
+                       confidence="NONE", candidate_count=len(rerank_documents),
+                       suggestions=local_suggestions)
 
 
-def review_highlighted_output_file(output_xlsx_path: str, suggestions_xlsx_path: str = "") -> str:
-    print(f"Loading master product data...")
+# ==========================================================================
+# STAGE 1 DRIVER: garbage-check classification for a single row
+#
+# Refactored from garbage_check.main()'s per-row body. Fully local: no LLM call
+# is made or possible in this stage. The exception cascade below is reproduced
+# in the original order; the only change is that results are returned instead of
+# written into columns B-G of the input workbook.
+#
+# Returns (kind, brand) where kind is one of:
+#   "PRODUCT"        -> confirmed product row, brand hint is the second element
+#   "GARBAGE"        -> garbage row
+#   "MAYBE_PRODUCT"  -> form+qty pattern only, no confirmed brand
+#   "REVIEW"         -> unresolved; garbage_check defers these to review
+# ==========================================================================
+def classify_row(name, brand_index, garbage_rows, verbose=False):
+    spans = token_spans(name)
+    exact_match = exact_product_match(name, brand_index, precomputed_spans=spans)
+    fuzzy_match = None if exact_match else fuzzy_product_match(name, brand_index,
+                                                               precomputed_spans=spans)
+    local_match = exact_match or fuzzy_match
+
+    matched_brand_norm = normalize_text(local_match["brand"]) if local_match else ""
+
+    # Exception: CELOL matching rows with DINNER or SET are non-pharma garbage
+    if local_match and matched_brand_norm == "CELOL" and re.search(
+            r"\b(MARKER|DINNER|SETS?)\b", str(name).upper()):
+        return "GARBAGE", ""
+
+    # EXACT_ONLY_BRANDS: fuzzy matches are too risky (e.g. CTAX vs TAX,
+    # EFCURE vs EMCURE). Only exact span matches are trusted; fuzzy hits are
+    # invalidated so the row falls through to garbage / review checks.
+    if local_match and matched_brand_norm in EXACT_ONLY_BRANDS:
+        if local_match.get("match_type") != "exact":
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: TAMLET matching the common dosage token TABLET/TABLETS
+    if local_match and matched_brand_norm == "TAMLET":
+        if normalize_text(local_match.get("matched_text", "")) in ("TABLET", "TABLETS"):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: IMPETUS / VINTOR / EMNU rows containing "COMPANY" are
+    # company/distributor header lines, not product rows.
+    _COMPANY_BRANDS = {"IMPETUS", "VINTOR", "EMNU"}
+    if local_match and matched_brand_norm in _COMPANY_BRANDS:
+        if re.search(r"\bCOMPANY\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: AMARYL + SEMI is not a valid product (SEMI AMARYL is not in
+    # the master list).
+    if local_match and matched_brand_norm == "AMARYL":
+        if re.search(r"\bSEMI\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: EMNU + MANUFACTURER is a manufacturer/company header line.
+    if local_match and matched_brand_norm == "EMNU":
+        if re.search(r"\bMANUFACTURER\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: ZUVENTUS has only one real product (ORS ORANGE); every other
+    # ZUVENTUS row is a company/division line -> garbage directly.
+    if local_match and matched_brand_norm == "ZUVENTUS":
+        if not re.search(r"\bORS\b", str(name), re.IGNORECASE):
+            return "GARBAGE", ""
+
+    # Exception: NEW brand -- only rows containing NORMET are real products.
+    if local_match and matched_brand_norm == "NEW":
+        if not re.search(r"\bNORMET\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: VITAMIN brand -- only rows containing D3 are real products.
+    if local_match and matched_brand_norm == "VITAMIN":
+        if not re.search(r"\bD3\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: EMCOR brand -- real product rows must contain CREAM or TUBE.
+    if local_match and matched_brand_norm == "EMCOR":
+        if not re.search(r"\b(CREAM|TUBE)\b", str(name), re.IGNORECASE):
+            local_match = None
+            matched_brand_norm = ""
+
+    # Exception: NUMLO -- when the raw text is SNUMLO the real product is
+    # S-NUMLO. A plain NUMLO match (no S prefix) is left untouched.
+    if local_match and matched_brand_norm == "NUMLO":
+        if ("S" + matched_brand_norm) in normalize_text(name):
+            local_match = dict(local_match)
+            local_match["brand"] = "S-NUMLO"
+
+    if local_match and matched_brand_norm not in LOCAL_REVIEW_BRANDS:
+        return "PRODUCT", local_match["brand"]
+    elif (
+        is_exact_garbage_row(name, garbage_rows)
+        or is_pattern_garbage_row(name)
+        or is_metadata_garbage_row(name)
+    ):
+        return "GARBAGE", ""
+    else:
+        if fuzzy_garbage_match(name, garbage_rows):
+            return "GARBAGE", ""
+        elif local_match:
+            # Brand requires review -> garbage_check defers this row.
+            return "REVIEW", local_match["brand"]
+        else:
+            if is_maybe_product_row(name):
+                return "MAYBE_PRODUCT", ""
+            return "REVIEW", ""
+
+
+# ==========================================================================
+# STAGE 2 DRIVER + OUTPUT DECISION
+# ==========================================================================
+
+# Statuses that process_product() only ever returns because the reranker was
+# unavailable or its answer could not be used. Every one of them carries a
+# LOCALLY chosen candidate (or none at all) that the reranker was supposed to
+# confirm or reject. With the reranker disabled, such a row is NOT resolved, so
+# it is reported as NO_SUGGESTION / 0 rather than mapped to the local guess.
+#
+#   RECOVERED_LOCAL_ONLY    reranker skipped (PROCESSING_MODE == "local")
+#   LOCAL_ONLY_UNRESOLVED   reranker skipped, no local candidate either
+#   RECOVERED_API_ERROR     reranker call failed, fell back to local candidate
+#   API_ERROR               reranker call failed, no local candidate
+#   RECOVERED_LLM_REJECTED  reranker said NO_CLEAR_MATCH, fell back to local
+#   LLM_REJECTED            reranker said NO_CLEAR_MATCH, no local candidate
+#   RECOVERED_LLM_UNMATCHED reranker answer matched nothing, fell back to local
+#   LLM_UNMATCHED           reranker answer matched nothing, no local candidate
+RERANKER_DEPENDENT_STATUSES = {
+    "RECOVERED_LOCAL_ONLY",
+    "LOCAL_ONLY_UNRESOLVED",
+    "RECOVERED_API_ERROR",
+    "API_ERROR",
+    "RECOVERED_LLM_REJECTED",
+    "LLM_REJECTED",
+    "RECOVERED_LLM_UNMATCHED",
+    "LLM_UNMATCHED",
+}
+
+
+def decide_output(res):
+    """Translate a process_product() result into (remark, product_code).
+
+    Accuracy rule: a product code is emitted only when the LOCAL pipeline
+    resolved the row on its own. NO_CLEAR_MATCH, a missing code, and every
+    reranker-dependent status all collapse to NO_SUGGESTION / 0.
+    """
+    status = res.get("status", "")
+    output = res.get("output", "")
+    code = str(res.get("product_code", "") or "").strip()
+
+    if status in RERANKER_DEPENDENT_STATUSES:
+        return REMARK_NO_SUGGESTION, CODE_NO_SUGGESTION
+    if not code or output == "NO_CLEAR_MATCH" or output.startswith("API_ERROR:"):
+        return REMARK_NO_SUGGESTION, CODE_NO_SUGGESTION
+    return output, (int(code) if code.isdigit() else code)
+
+
+def map_one(input_name, brand, brand_map, all_variants, all_sub_variants):
+    """Run the mapping pipeline for one garbage_check-confirmed product row.
+
+    auto_detect is always False: the brand comes from garbage_check only.
+    client is always None: the reranker is disabled.
+    """
+    res = process_product(input_name, brand_map, all_variants, all_sub_variants,
+                          None, verbose=False, forced_brand=brand,
+                          auto_detect=False)
+    return res
+
+
+# ==========================================================================
+# PIPELINE DRIVER
+# ==========================================================================
+def build_output_workbook(rows):
+    """Write the single-sheet, three-column output workbook.
+
+    The input workbook is never opened for writing; a new file is created at
+    OUTPUT_XLSX_PATH with exactly one sheet and exactly the columns
+    Input | Remark | Product Code.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = OUTPUT_SHEET_NAME
+    ws.append(list(OUTPUT_COLUMNS))
+    for input_value, remark, code in rows:
+        ws.append([input_value, remark, code])
+    wb.save(OUTPUT_XLSX_PATH)
+    return len(rows)
+
+
+def main():
+    if llm_enabled():
+        raise RuntimeError(
+            "PROCESSING_MODE must stay 'local' in MAPPING_MAIN.py: the reranker "
+            "is commented out and no credentials are configured here."
+        )
+
+    # ---- stage 1 resources (garbage_check) ----
+    brands = load_brands()
+    brand_index = build_brand_index(brands)
+    garbage_rows = build_garbage_set()
+    print(f"{len(brands)} brands loaded (garbage-check stage)")
+
+    # ---- stage 2 resources (mapping) ----
     df_master = load_master(MASTER_XLSX_PATH)
     brand_map = build_brand_product_map(df_master)
-    print(f"Opening highlighted output file: {output_xlsx_path}")
-    source_wb = load_workbook(output_xlsx_path)
-    source_ws = source_wb[source_wb.sheetnames[0]]
-    if not suggestions_xlsx_path:
-        base = Path(output_xlsx_path)
-        suggestions_xlsx_path = str(base.with_name(base.stem + "_suggestions.xlsx"))
-    suggestions_wb = Workbook()
-    suggestions_ws = suggestions_wb.active
-    suggestions_ws.title = "HighlightedSuggestions"
-    suggestions_ws.append([
-        "Row_No", "Input_Column", "Current_Output", "Current_Product_Code",
-        "Suggested_Output", "Suggested_Product_Code", "Status",
-    ])
-    highlighted_count = 0
-    changed_count = 0
-    for row_num in range(2, source_ws.max_row + 1):
-        if not any(source_ws.cell(row_num, col).fill.fill_type for col in range(1, source_ws.max_column + 1)):
+    all_variants = extract_all_variants_from_data(brand_map)
+    all_sub_variants = extract_all_sub_variants_from_data(brand_map)
+    print(f"{len(brand_map)} master brands, {len(all_variants)} variants, "
+          f"{len(all_sub_variants)} sub-variants (mapping stage)")
+
+    # ---- read the input column (read-only; the input file is never written) ----
+    print(f"Reading input: {INPUT_XLSX_PATH} [{INPUT_SHEET_NAME}]")
+    wb_in = load_workbook(INPUT_XLSX_PATH, read_only=True, data_only=True)
+    ws_in = wb_in[INPUT_SHEET_NAME]
+    raw = []
+    for row in ws_in.iter_rows(min_row=2, min_col=1, max_col=1, values_only=True):
+        value = row[0]
+        raw.append("" if value is None else str(value).strip())
+    wb_in.close()
+    if ROW_LIMIT is not None:
+        raw = raw[:ROW_LIMIT]
+    print(f"{len(raw)} input rows read. Starting combined pipeline...")
+
+    counts = {"blank": 0, "garbage": 0, "review": 0, "maybe_product": 0,
+              "product": 0, "mapped": 0, "no_suggestion": 0}
+    out_rows = []
+
+    for i, name in enumerate(raw, start=2):
+        # Blank rows are not classified, mirroring garbage_check, which skips
+        # them entirely. An empty output row keeps output row N aligned with
+        # input row N instead of inventing a classification.
+        if name == "":
+            counts["blank"] += 1
+            out_rows.append(("", "", ""))
             continue
-        highlighted_count += 1
-        input_name = source_ws.cell(row_num, 1).value or ""
-        current_output = source_ws.cell(row_num, 2).value or ""
-        current_code = source_ws.cell(row_num, 3).value or ""
-        suggested_output, suggested_code = suggest_local_match(input_name, brand_map, verbose=False)
-        status = "Needs manual review"
-        if str(current_output).strip().upper() != str(suggested_output).strip().upper():
-            status = "Suggested change"
-            changed_count += 1
-        suggestions_ws.append([row_num, input_name, current_output, current_code,
-                                suggested_output, suggested_code, status])
-    suggestions_wb.save(suggestions_xlsx_path)
-    print(f"✓ Reviewed {highlighted_count} rows, suggested {changed_count} changes")
-    return suggestions_xlsx_path
 
+        kind, brand = classify_row(name, brand_index, garbage_rows)
 
-# =========================
-# EXCEL BATCH PROCESSING
-# =========================
-
-def _save_to_mapping_sheet(df, workbook_path):
-    """Write df into the 'mapping' sheet of workbook_path.
-    Opens the existing workbook, replaces only the 'mapping' sheet,
-    and saves — leaving every other sheet (e.g. garbage_check) intact.
-    """
-    try:
-        wb = load_workbook(workbook_path)
-    except FileNotFoundError:
-        wb = Workbook()
-        # Remove the default blank sheet openpyxl creates
-        for name in wb.sheetnames:
-            if name in ("Sheet", "Sheet1"):
-                del wb[name]
-
-    if "mapping" in wb.sheetnames:
-        del wb["mapping"]
-    ws = wb.create_sheet("mapping")
-
-    # Write header row
-    for col_idx, col_name in enumerate(df.columns, 1):
-        ws.cell(row=1, column=col_idx, value=col_name)
-
-    # Write data rows
-    for row_idx, row in enumerate(df.itertuples(index=False, name=None), 2):
-        for col_idx, value in enumerate(row, 1):
-            # Convert NaN/None to blank string so Excel stays clean
-            ws.cell(row=row_idx, column=col_idx,
-                    value=value if not (isinstance(value, float) and value != value) else "")
-
-    wb.save(workbook_path)
-
-def format_row_result(position: int, total: int, input_name: str, res: dict) -> str:
-    """Build the one-line batch console record for a processed row.
-
-    Reads res["output"]/res["product_code"]/res["status"] verbatim, so a row that
-    did not map shows its real placeholder (NO_CLEAR_MATCH) and status instead of
-    a reconstructed product name.
-    """
-    mapped = str(res.get("output", "") or "")
-    code = str(res.get("product_code", "") or "")
-    tail = f"{mapped} [{code}]" if code else mapped
-    counter = f"[{position:>{len(str(total))}}/{total}]"
-    return f"{counter} {input_name[:44]:<44} → {tail}  ({res.get('status', '')})"
-
-
-def process_excel_file():
-    print("Loading master product data...")
-    try:
-        df_master = load_master(MASTER_XLSX_PATH)
-        brand_map = build_brand_product_map(df_master)
-        print(f"✓ Loaded {len(brand_map)} unique brands")
-        all_variants = extract_all_variants_from_data(brand_map)
-        all_sub_variants = extract_all_sub_variants_from_data(brand_map)
-        print(f"✓ Extracted {len(all_variants)} variants, {len(all_sub_variants)} sub-variants")
-    except Exception as e:
-        print(f"ERROR loading master data: {e}")
-        sys.exit(1)
-
-# ---------------------------------------------------------------
-# Read input from test.xlsx → garbage_check sheet
-# Processes two row types:
-#   "0"            — confirmed product rows (forced brand from col C)
-#   "MAYBE_PRODUCT"— uncertain product rows (auto brand detection)
-# ---------------------------------------------------------------
-    print(f"Reading product rows from {INPUT_OUTPUT_XLSX_PATH} (sheet: garbage_check)...")
-    df = pd.DataFrame()  # Initialise df to avoid UnboundLocalError if try block raises early
-    try:
-        df_source = pd.read_excel(
-            INPUT_OUTPUT_XLSX_PATH,
-            sheet_name="garbage_check",
-            engine="openpyxl",
-        )
-        # Column A = product name, Column B = garbage_check result, Column C = Matched brand
-        product_col  = df_source.columns[0]   # PRODUCT_NAME
-        garbage_col  = df_source.columns[1]   # Garbage check
-        brand_col    = df_source.columns[2]   # Matched brand
-
-        # "0" rows — confirmed products; brand hint from col C
-        mask_0 = df_source[garbage_col].astype(str).str.strip() == "0"
-        df_0 = df_source.loc[mask_0, [product_col, brand_col]].copy().reset_index(drop=True)
-        df_0.rename(columns={product_col: INPUT_COLUMN, brand_col: "_brand_hint"}, inplace=True)
-        df_0["_auto_detect"] = False
-        df_0["_source_label"] = "0"
-
-        # "MAYBE_PRODUCT" rows — uncertain products; use auto brand detection
-        mask_mp = df_source[garbage_col].astype(str).str.strip() == "MAYBE_PRODUCT"
-        df_mp = df_source.loc[mask_mp, [product_col]].copy().reset_index(drop=True)
-        df_mp.rename(columns={product_col: INPUT_COLUMN}, inplace=True)
-        df_mp["_brand_hint"] = None
-        df_mp["_auto_detect"] = True
-        df_mp["_source_label"] = "MAYBE_PRODUCT"
-
-        # Combine rows based on flag
-        if PROCESS_CONFIRMED_ZERO_ONLY:
-            df_combined = df_0.copy().reset_index(drop=True)
-            print(f"  (PROCESS_CONFIRMED_ZERO_ONLY=True — skipping {mask_mp.sum()} 'MAYBE_PRODUCT' rows)")
-        elif PROCESS_MAYBE_PRODUCT_ONLY:
-            df_combined = df_mp.copy().reset_index(drop=True)
-            print(f"  (PROCESS_MAYBE_PRODUCT_ONLY=True — skipping {mask_0.sum()} confirmed '0' rows)")
-        else:
-            df_combined = pd.concat([df_0, df_mp], ignore_index=True)
-
-
-        print(f"✓ {mask_0.sum()} confirmed '0' rows, {mask_mp.sum()} 'MAYBE_PRODUCT' rows "
-              f"(out of {len(df_source)} total)")
-        if df_combined.empty:
-            print("No rows to process. Exiting.")
-            return
-
-        df = df_combined
-        if ROW_LIMIT is not None:
-            df = df.iloc[:ROW_LIMIT].copy()
-            print(f"  (ROW_LIMIT={ROW_LIMIT} applied — processing first {len(df)} rows)")
-        input_column_name = INPUT_COLUMN
-
-    except Exception as e:
-        print(f"ERROR loading file: {e}")
-        sys.exit(1)
-
-    # Add output columns fresh (this is always a new mapping run from the filtered set)
-    output_column_name      = OUTPUT_COLUMN
-    product_code_column_name = PRODUCT_CODE_COLUMN
-    df[output_column_name]        = None
-    df[product_code_column_name]  = None
-    for diag_col in (STATUS_COLUMN, CONFIDENCE_COLUMN, CANDIDATES_COLUMN, SUGGESTIONS_COLUMN, SOURCE_COLUMN):
-        df[diag_col] = None
-
-    print(f"✓ Loaded {len(df)} products to process")
-
-    client = None
-    total_rows = len(df)
-    processed_count = 0
-    skipped_count = 0
-    error_count = 0
-
-    print(f"\nProcessing {total_rows} products...")
-    print("=" * 60)
-
-    for idx, row in df.iterrows():
-        input_name = (str(row[input_column_name]).strip()
-                      if not pd.isna(row[input_column_name]) else "")
-        existing_output = ""
-        if output_column_name in df.columns and not pd.isna(row.get(output_column_name)):
-            existing_output = str(row[output_column_name]).strip()
-        if existing_output and existing_output not in ("", "nan", "NaN"):
-            print(f"[{idx+1:>{len(str(total_rows))}}/{total_rows}] "
-                  f"{input_name[:44]:<44} → (already mapped, skipped)")
-            skipped_count += 1
+        if kind == "GARBAGE":
+            counts["garbage"] += 1
+            out_rows.append((name, REMARK_GARBAGE, CODE_GARBAGE))
             continue
-        if not input_name or input_name == "nan":
-            df.at[idx, output_column_name] = "SKIPPED_EMPTY_INPUT"
-            df.at[idx, product_code_column_name] = ""
-            df.at[idx, STATUS_COLUMN] = "SKIPPED_EMPTY"
-            df.at[idx, CONFIDENCE_COLUMN] = "NONE"
-            df.at[idx, CANDIDATES_COLUMN] = 0
-            df.at[idx, SUGGESTIONS_COLUMN] = ""
+        if kind == "REVIEW":
+            counts["review"] += 1
+            out_rows.append((name, REMARK_REVIEW, CODE_REVIEW))
             continue
+        if kind == "MAYBE_PRODUCT":
+            # Not a confirmed product: the mapping stage is not entered at all.
+            counts["maybe_product"] += 1
+            out_rows.append((name, REMARK_NO_SUGGESTION, CODE_NO_SUGGESTION))
+            continue
+
+        # Confirmed product row: starts at NO_SUGGESTION / 0 and is overwritten
+        # only if the local mapping pipeline resolves it on its own.
+        counts["product"] += 1
+        remark, code = REMARK_NO_SUGGESTION, CODE_NO_SUGGESTION
         try:
-            # Pull the brand hint and routing flags set during row collection
-            raw_hint = row.get("_brand_hint", None)
-            brand_hint = str(raw_hint).strip() if raw_hint and not (isinstance(raw_hint, float) and raw_hint != raw_hint) else None
-            brand_hint = None if brand_hint in (None, "", "nan", "None") else brand_hint
-            auto_detect_flag = bool(row.get("_auto_detect", False))
-            source_label = str(row.get("_source_label", "0"))
-            llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
-            res = process_product(
-                input_name, brand_map, all_variants, all_sub_variants, client,
-                verbose=False, forced_brand=brand_hint, auto_detect=auto_detect_flag)
-            df.at[idx, output_column_name] = res["output"]
-            df.at[idx, product_code_column_name] = res["product_code"]
-            df.at[idx, STATUS_COLUMN] = res["status"]
-            df.at[idx, CONFIDENCE_COLUMN] = res["confidence"]
-            df.at[idx, CANDIDATES_COLUMN] = res["candidate_count"]
-            df.at[idx, SUGGESTIONS_COLUMN] = format_suggestions(res["suggestions"])
-            df.at[idx, SOURCE_COLUMN] = source_label
-            print(format_row_result(idx + 1, total_rows, input_name, res))
-            processed_count += 1
-            if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
-                time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
-            if processed_count > 0 and processed_count % 100000== 0:
-                print(f"\n✓ Auto-saving after {processed_count} rows...")
-                try:
-                    _save_to_mapping_sheet(
-                        df.drop(columns=[c for c in df.columns if c.startswith("_")], errors="ignore"),
-                        INPUT_OUTPUT_XLSX_PATH)
-                    print(f"✓ Saved\n")
-                except Exception as e:
-                    print(f"  Warning: {e}\n")
+            res = map_one(name, brand, brand_map, all_variants, all_sub_variants)
+            remark, code = decide_output(res)
         except Exception as e:
-            print(f"[{idx+1:>{len(str(total_rows))}}/{total_rows}] "
-                  f"{input_name[:44]:<44} → ERROR: {str(e)[:60]}")
-            df.at[idx, output_column_name] = f"ERROR: {str(e)[:100]}"
-            df.at[idx, product_code_column_name] = ""
-            df.at[idx, STATUS_COLUMN] = "ERROR"
-            df.at[idx, CONFIDENCE_COLUMN] = "NONE"
-            df.at[idx, CANDIDATES_COLUMN] = 0
-            df.at[idx, SUGGESTIONS_COLUMN] = ""
-            error_count += 1
+            # Never let one bad row abort the run or fabricate a code.
+            print(f"row {i}: {name!r} -> mapping error, kept NO_SUGGESTION ({e})")
+            remark, code = REMARK_NO_SUGGESTION, CODE_NO_SUGGESTION
+        if code == CODE_NO_SUGGESTION and remark == REMARK_NO_SUGGESTION:
+            counts["no_suggestion"] += 1
+        else:
+            counts["mapped"] += 1
+        out_rows.append((name, remark, code))
 
-    print(f"\n{'='*60}\nSaving final results...")
-    try:
-        _save_to_mapping_sheet(
-            df.drop(columns=[c for c in df.columns if c.startswith("_")], errors="ignore"),
-            INPUT_OUTPUT_XLSX_PATH)
-        print(f"✓ Results saved to '{INPUT_OUTPUT_XLSX_PATH}' → sheet 'mapping'")
-    except Exception as e:
-        print(f"ERROR saving: {e}")
+        if counts["product"] % 500 == 0:
+            print(f"  ... {i - 1} rows processed "
+                  f"({counts['mapped']} mapped, {counts['no_suggestion']} no-suggestion)")
 
-    print("\n" + "=" * 60)
-    print("PROCESSING SUMMARY")
-    print("=" * 60)
-    print(f"Total rows: {total_rows}, Processed: {processed_count}, "
-          f"Skipped: {skipped_count}, Errors: {error_count}")
-    global REQ_COUNT, SUM_TOTAL_TOKENS
-    if REQ_COUNT > 0:
-        print(f"API calls: {REQ_COUNT}, Avg tokens: {SUM_TOTAL_TOKENS / (REQ_COUNT or 1):.1f}")
-    if output_column_name in df.columns:
-        results = df[output_column_name].astype(str)
-        successful = ~results.str.contains("NO_CLEAR_MATCH|ERROR|SKIPPED", case=False, na=False) & results.ne("")
-        print(f"Successful: {successful.sum()} ({(successful.sum() / (total_rows or 1)) * 100:.1f}%)")
-    if STATUS_COLUMN in df.columns:
-        status_series = df[STATUS_COLUMN].astype(str)
-        recovered = status_series.str.startswith("RECOVERED").sum()
-        unmatched = results.str.contains("NO_CLEAR_MATCH", case=False, na=False).sum()
-        print(f"  of which auto-recovered (LOW confidence): {recovered}")
-        print(f"  still NO_CLEAR_MATCH (need manual review): {unmatched}")
-        print("\nStatus breakdown:")
-        for status_val, count in status_series.value_counts().items():
-            if status_val and status_val != "nan":
-                print(f"  {status_val}: {count}")
+    written = build_output_workbook(out_rows)
+    print(f"\nWrote {written} rows to {OUTPUT_XLSX_PATH} "
+          f"[sheet: {OUTPUT_SHEET_NAME}]")
+    print(f"  blank            : {counts['blank']}")
+    print(f"  garbage (1)      : {counts['garbage']}")
+    print(f"  review (2)       : {counts['review']}")
+    print(f"  maybe product (0): {counts['maybe_product']}")
+    print(f"  confirmed product: {counts['product']}")
+    print(f"    mapped         : {counts['mapped']}")
+    print(f"    no suggestion  : {counts['no_suggestion']}")
+    print(f"  LLM calls made   : 0 (PROCESSING_MODE='local')")
 
 
-# =========================
-# INTERACTIVE MODE
-# =========================
-def interactive_mode():
-    print("\n" + "=" * 60)
-    print("INTERACTIVE MODE")
-    print("=" * 60)
-    try:
-        df_master = load_master(MASTER_XLSX_PATH)
-        brand_map = build_brand_product_map(df_master)
-        print(f"✓ Loaded {len(brand_map)} brands")
-        all_variants = extract_all_variants_from_data(brand_map)
-        all_sub_variants = extract_all_sub_variants_from_data(brand_map)
-        print(f"✓ {len(all_variants)} variants, {len(all_sub_variants)} sub-variants")
-    except Exception as e:
-        print(f"ERROR: {e}")
-        sys.exit(1)
-    client = None
-    print("\nCommands: 'exit', 'brands', 'stats'")
-    while True:
-        print("\n" + "=" * 60)
-        input_name_raw = input("Enter INPUT PRODUCT NAME: ").strip()
-        if not input_name_raw:
-            continue
-        if input_name_raw.lower() in {"exit", "quit", "q"}:
-            break
-        if input_name_raw.lower() == "brands":
-            for i, (brand, items) in enumerate(sorted(brand_map.items()), 1):
-                print(f"  {i}. {brand} ({len(items)} products)")
-            continue
-        if input_name_raw.lower() == "stats":
-            print(f"  Brands: {len(brand_map)}")
-            print(f"  Products: {sum(len(items) for items in brand_map.values())}")
-            print(f"  Variants: {len(all_variants)}, Sub-variants: {len(all_sub_variants)}")
-            continue
-        llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
-        res = process_product(
-            input_name_raw, brand_map, all_variants, all_sub_variants, client, verbose=True)
-        print("\n" + "=" * 60)
-        print(f"Input:        '{input_name_raw}'")
-        print(f"Result:       '{res['output']}'")
-        print(f"Product Code: '{res['product_code']}'")
-        print(f"Status:       {res['status']}  |  Confidence: {res['confidence']}")
-        print(f"Candidates to model: {res['candidate_count']}")
-        if res["suggestions"]:
-            print("Suggestions:")
-            for s in res["suggestions"]:
-                code = f" ({s['product_code']})" if s.get("product_code") else ""
-                print(f"   - {s['product']}{code} [{s['score']}]")
-        print("=" * 60)
-        if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
-            time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
-
-
-# =========================
-# ENTRY POINT
-# =========================
 if __name__ == "__main__":
-    print("=" * 60)
-    print("PHARMA PRODUCT MATCHING SYSTEM (v5 — integrated fixes)")
-    print("=" * 60)
-    print("\nChoose mode:")
-    print("1. Process Excel file (batch)")
-    print("2. Interactive mode (debugging)")
-    choice = input("\nEnter choice (1 or 2): ").strip()
-    if choice == "1":
-        process_excel_file()
-    elif choice == "2":
-        interactive_mode()
-    else:
-        print("Invalid choice. Exiting.")
+    main()
