@@ -10,7 +10,7 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "testraw.xlsx"
+EXCEL_FILE = "test2.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call

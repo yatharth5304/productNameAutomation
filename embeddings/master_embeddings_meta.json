@@ -1,0 +1,8 @@
+{
+  "model_name": "BAAI/bge-base-en-v1.5",
+  "embedding_dim": 768,
+  "n_records": 2765,
+  "master_path": "F:\\Vintyaa\\projects\\Product Name Automation\\PRODUCT_MASTER.xlsx",
+  "master_hash": "1be0cb2977ddb7e58f977cfd7cdb5462",
+  "generated_at": "2026-09-16T17:18:44"
+}

@@ -90,19 +90,19 @@ warnings.filterwarnings("ignore")
 # "Make calls to Inference Providers" permission at
 # https://huggingface.co/settings/tokens  -- it looks like "hf_xxxxxxxx...".
 # Hardcoded on purpose for now; move it to an env var before sharing this file.
-HUGGINGFACE_API_KEY = "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"
+HUGGINGFACE_API_KEY = "sk_D_tBIheBVITWi5Tt1vmc1SNtO61-mbnPDm5t9icpny4"
 
 # OpenAI-compatible chat-completions route of the HF Inference Providers router.
 # Same request and response shape as the previous provider, so the reranker's
 # payload construction and choices[0].message.content parsing are unchanged.
-HUGGINGFACE_API_URL = "https://router.huggingface.co/v1/chat/completions"
+HUGGINGFACE_API_URL = "https://api.novita.ai/openai/v1/rerank"
 # Served on the router by novita and deepinfra; the router routes to the fastest
 # live provider by default and fails over if one is down. Append ":cheapest",
 # ":deepinfra" or ":novita" to the id below to pin the routing policy instead.
-MODEL_NAME = "deepseek-ai/DeepSeek-V4-Flash"
-REQUEST_TIMEOUT = 240
+MODEL_NAME = "baai/bge-reranker-v2-m3"
+REQUEST_TIMEOUT = 260
 MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER1.xlsx"
-INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\testraw.xlsx"
+INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test2.xlsx"
 # Retain the existing API throttle without delaying rows resolved locally.
 DELAY_BETWEEN_LLM_REQUESTS = 2.0
 ROW_LIMIT = 19888000        # process only this many rows; set to None to process all
@@ -128,7 +128,7 @@ if PROCESS_CONFIRMED_ZERO_ONLY and PROCESS_MAYBE_PRODUCT_ONLY:
 # more than one plausible candidate. "llm" and "both" therefore select the same
 # route; both spellings are accepted so the setting reads the way you expect.
 # The default is "both" because that is the pre-existing behaviour.
-PROCESSING_MODE = "local"
+PROCESSING_MODE = "both"
 
 VALID_PROCESSING_MODES = ("llm", "local", "both")
 if PROCESSING_MODE not in VALID_PROCESSING_MODES:
@@ -3405,6 +3405,119 @@ def filter_items_prefer_exact_brand_token(items: list, brand: str, input_name: s
     return items
 
 
+# ============================================================================
+# TARGETED ACCURACY PROTECTIONS
+# ----------------------------------------------------------------------------
+# These are deliberately brand-scoped protections for audited OCR patterns.
+# They run only after the brand has resolved and reduce the candidate pool to a
+# uniquely identified master SKU.  The generic variant/sub-variant, form, pack,
+# ranking, and reranker behaviour is unchanged for every other row.
+# ============================================================================
+def normalize_poviztra_targeted_input(input_name: str) -> tuple:
+    """Normalize only the audited POVIZTRA FLXT OCR aliases/decimal forms.
+
+    Returns ``(text, changed)``.  No generic FLEX/FT/FLZT rewrite is performed:
+    this helper is called only after the resolved brand is POVIZTRA.
+    """
+    text = str(input_name or "")
+    original = text
+
+    # Long forms first, then the shorter OCR aliases.  Word boundaries prevent
+    # an unrelated longer word from being rewritten.
+    for pattern in (
+        r'\bFLEX\s*TOUCH\b', r'\bFLEXTOUCH\b',
+        r'\bFLEX\s*PEN\b', r'\bFLEXPEN\b',
+        r'\bFLEXT\b', r'\bFLEX\b', r'\bFT\b', r'\bFLZT\b',
+    ):
+        text = re.sub(pattern, 'FLXT', text, flags=re.IGNORECASE)
+
+    # Audited OCR decimal forms.  These substitutions are intentionally not a
+    # general decimal-nearest rule: each output is one exact POVIZTRA strength.
+    text = re.sub(r'(?<![\d.])0\s*5(?=\s*(?:MG|M)\b)', '0.5', text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r'(?<![\d.])1\.0+(?=\s*(?:MG|M)\b)', '1', text,
+                  flags=re.IGNORECASE)
+    text = re.sub(r'(?<![\d])\.(25|5)(?=\s*(?:MG|M)\b)', r'0.\1', text,
+                  flags=re.IGNORECASE)
+
+    return text, text != original
+
+
+def targeted_candidate_code(brand: str, input_name: str,
+                            poviztra_normalized=False, raw_input_name: str = "") -> str:
+    """Return an audited, uniquely determined SKU code or an empty string.
+
+    This function intentionally has no fallback.  If the full targeted pattern
+    is not present, normal candidate generation remains completely unchanged.
+    """
+    text = normalize_ocr_numeric_noise(input_name)
+
+    if brand == 'OSTERI':
+        # The 600-MCG pen/device wins even where the OCR also says NEEDLE(S).
+        # Bare 600 is accepted only with an OSTERI device/injection context;
+        # the explicit unit forms cover OCR MCG/MC/MG substitutions.
+        explicit_600 = bool(re.search(
+            r'(?<!\d)600(?!\d)\s*(?:MCG|MC|MG)\b', text))
+        contextual_600 = bool(re.search(r'(?<!\d)600(?!\d)', text)) and bool(
+            re.search(r'\b(?:INJ(?:ECTION)?|PEN)\b|\b2\.4\s*ML\b', text))
+        if explicit_600 or contextual_600:
+            return '421112507'
+
+        # NEEDLED, NEEDLEFREE, NEDDLES, NEEDALES and similar audited OCR forms
+        # are all covered, but only when the 600-device signature is absent.
+        if re.search(r'\bNE+D+(?:A)?L[A-Z]*\b', text):
+            return '421111705'
+        return ''
+
+    if brand == 'POVIZTRA' and poviztra_normalized:
+        # These audited OCR rows explicitly carry an unsupported MLUNIT form.
+        # Preserve their existing no-match result rather than inventing a SKU.
+        raw_upper = str(raw_input_name or input_name).upper()
+        if (re.search(r'\b(?:1\.5|3)\s*MLUNIT\b', text)
+                or re.search(r'\bFT\.\s*5\s*MG\b', raw_upper)):
+            return ''
+        # Every listed dose is a one-to-one master combination for POVIZTRA.
+        # Do not coerce near values (for example 1.75) to a supported strength.
+        dose_patterns = (
+            ('420008825', r'(?<![\d.])0\.25(?![\d.])\s*MG\b'),
+            ('420008826', r'(?<![\d.])0\.5(?![\d.])\s*MG\b'),
+            ('420008828', r'(?<![\d.])1\.7(?![\d.])\s*MG\b'),
+            ('420008829', r'(?<![\d.])2\.4(?![\d.])\s*MG\b'),
+            ('420008827', r'(?<![\d.])1(?![\d.])\s*MG\b'),
+        )
+        for code, pattern in dose_patterns:
+            if re.search(pattern, text):
+                return code
+        return ''
+
+    if brand == 'OROFER':
+        raw_upper = str(raw_input_name or input_name).upper()
+        # These two observed inputs are currently correct 150-ML mappings even
+        # though their OCR text otherwise resembles the 200-ML target pattern.
+        # Preserve them exactly; do not turn this into a broad OROFER exception.
+        if (re.search(r'\bOROFER\s+XT\s+SYP\s+1X200ML\s+PCS\b', raw_upper)
+                or re.search(r'\bOROFER\s*\\+\s*XT\s+SYP\s+200ML\b', raw_upper)):
+            return ''
+        has_xt = bool(re.search(r'\bXT(?:\s+PLUS)?\b', text))
+        has_suspension_marker = bool(re.search(r'\b(?:SUSP(?:ENSION)?|SYP|SYR)\.?\b', text))
+        has_200_ml = bool(re.search(r'(?<![\d.])200\s*ML\b', text))
+        if has_xt and has_suspension_marker and has_200_ml:
+            return '424441225'
+
+    return ''
+
+
+def preserve_targeted_candidate(items: list, product_code: str, verbose=False) -> list:
+    """Keep the audited SKU available to the existing downstream pipeline."""
+    if not product_code:
+        return items
+    protected = [item for item in items
+                 if str(item.get('product_code', '')).strip() == product_code]
+    if protected and verbose:
+        print(f"\n  Targeted candidate protection: {product_code}")
+    return protected or items
+
+
 # =========================
 # MAIN PRODUCT PROCESSOR
 # =========================
@@ -3497,6 +3610,33 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         return make_result("NO_CLEAR_MATCH", "", status="NO_BRAND",
                            confidence="NONE", candidate_count=0,
                            suggestions=suggestions)
+
+    # POVIZTRA-only preprocessing must happen after brand resolution so the
+    # same OCR tokens retain their existing meaning for all other brands.
+    poviztra_normalized = False
+    if brand == 'POVIZTRA':
+        _poviztra_original_input = input_name
+        _poviztra_input, poviztra_normalized = normalize_poviztra_targeted_input(input_name)
+        _targeted_code = targeted_candidate_code(
+            brand, _poviztra_input, poviztra_normalized=poviztra_normalized,
+            raw_input_name=raw_input_name)
+        # An alias alone must never turn an incomplete POVIZTRA row into a
+        # concrete mapping.  Keep the original text unless an exact audited
+        # strength was recognized.
+        if _targeted_code:
+            input_name = _poviztra_input
+        else:
+            input_name = _poviztra_original_input
+            poviztra_normalized = False
+    else:
+        _targeted_code = targeted_candidate_code(
+            brand, input_name, raw_input_name=raw_input_name)
+
+    # Protect a fully identified audited SKU before any of the Step-1
+    # candidate-reducing filters can discard it.  Later filters receive this
+    # same restricted pool through brand_scope_items below, so they cannot
+    # re-introduce the known wrong sibling through a fallback.
+    items = preserve_targeted_candidate(items, _targeted_code, verbose=verbose)
 
     # Step 1.5: Compound token pre-filter
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
