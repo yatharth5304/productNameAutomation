@@ -1,0 +1,36 @@
+EVALUATION SPLIT METADATA
+==================================================
+Random seed            : 42
+Source                 : f:\Vintyaa\projects\Product Name Automation\hard_negative_mining.csv
+Total rows             : 1425
+Training rows          : 1061
+Evaluation rows        : 364
+Eval fraction (actual) : 25.5%
+Unique groups total    : 678
+Training group count   : 508
+Evaluation group count : 170
+Grouping key           : (Input_Column, Positive_Product)
+No-overlap verified    : True
+All eval codes valid   : True
+
+BASELINE RETRIEVAL METRICS (BAAI/bge-base-en-v1.5, pretrained)
+==================================================
+Evaluation unique groups   : 170
+Evaluation rows (total)    : 364
+Positive NOT in Top-10     : 7
+Recall@1                   : 0.4294
+Recall@3                   : 0.8059
+Recall@5                   : 0.9294
+Recall@10                  : 0.9588
+MRR                        : 0.6346
+Rank distribution:
+  NOT_FOUND         : 7
+  Rank 1            : 73
+  Rank 2            : 48
+  Rank 3            : 16
+  Rank 4            : 13
+  Rank 5            : 8
+  Rank 6            : 2
+  Rank 7            : 1
+  Rank 8            : 1
+  Rank 10           : 1

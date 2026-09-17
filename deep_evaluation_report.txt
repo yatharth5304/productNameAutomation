@@ -1,0 +1,1071 @@
+========================================================================
+  DEEP EVALUATION REPORT — bge-pharma-v1 vs BAAI/bge-base-en-v1.5
+========================================================================
+
+────────────────────────────────────────────────────────────────────────
+  1. EVALUATION INTEGRITY
+────────────────────────────────────────────────────────────────────────
+  evaluation_set.csv rows     : 364 ✓
+  Unique eval groups          : 170 ✓
+  Eval–train group overlap    : 0   ✓
+  All eval positives in master: YES ✓
+  Retrieval procedure         : brand-filtered (positive brand) + cosine Top-10
+  Query text                  : complete original Input_Column, no cleaning
+  Master text                 : complete product_name from PRODUCT_MASTER.xlsx
+
+────────────────────────────────────────────────────────────────────────
+  2. BASELINE vs FINE-TUNED METRICS (170 unique eval groups)
+────────────────────────────────────────────────────────────────────────
+  Metric           Baseline   Fine-tuned      Delta
+  ────────────── ────────── ──────────── ──────────
+  Recall@1            42.9%         72.4%      +29.4%
+  Recall@3            80.6%         94.7%      +14.1%
+  Recall@5            92.9%         98.2%       +5.3%
+  Recall@10           95.9%        100.0%       +4.1%
+  MRR                0.6346        0.8373     +0.2026
+  NOT_FOUND               7             0          -7
+
+────────────────────────────────────────────────────────────────────────
+  3. RANK DISTRIBUTION — FINE-TUNED MODEL
+────────────────────────────────────────────────────────────────────────
+  Rank 1    :  123  ( 72.4%)  ████████████████████████████
+  Rank 2    :   29  ( 17.1%)  ██████
+  Rank 3    :    9  (  5.3%)  ██
+  Rank 4    :    4  (  2.4%)  
+  Rank 5    :    2  (  1.2%)  
+  Rank 6    :    1  (  0.6%)  
+  Rank 7    :    1  (  0.6%)  
+  Rank 8    :    1  (  0.6%)  
+
+────────────────────────────────────────────────────────────────────────
+  4. PER-ERROR CASE ANALYSIS  (47 cases where correct ≠ rank 1)
+────────────────────────────────────────────────────────────────────────
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'SYLATET-500MG TAB 1X10'
+  Correct     : SYLATE T 500 TABLET
+              : brand=SYLATE  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : SYLATE TABLET 500 MG
+              : brand=SYLATE
+              : strengths=[('500', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.7860  rank-1=0.7979  gap=0.0119
+  FT Rank     : 2  (baseline was rank 5)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7979  'SYLATE TABLET 500 MG'  (SYLATE)
+     2. [ ] 0.7860  'SYLATE T 500 TABLET'  (SYLATE)
+     3. [ ] 0.6925  'SYLATE M TABLET 500 MG'  (SYLATE)
+     4. [ ] 0.6648  'SYLATE T TABLET'  (SYLATE)
+     5. [ ] 0.5769  'SYLATE TABLETS 250 MG 10'  (SYLATE)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'FITJOINT Tab 1X10s'
+  Correct     : FITJOINT CAPSULES
+              : brand=FITJOINT  code=2
+              : strengths=[]  forms=[CAPSULES]
+  Rank-1 Pred : FITJOINT GM TABLETS
+              : brand=FITJOINT
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.7408  rank-1=0.7478  gap=0.0070
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : dosage-form confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7478  'FITJOINT GM TABLETS'  (FITJOINT)
+     2. [ ] 0.7408  'FITJOINT CAPSULES'  (FITJOINT)
+     3. [ ] 0.6597  'FITJOINT MAX CAPSULES'  (FITJOINT)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ENCICARB 1G INJ'
+  Correct     : ENCICARB INJECTION 100MG/2ML
+              : brand=ENCICARB  code=2
+              : strengths=[('100', 'MG'), ('2', 'ML')]  forms=[INJECTION]
+  Rank-1 Pred : ENCICARB INJECTION 1K
+              : brand=ENCICARB
+              : strengths=[]  forms=[INJECTION]
+  FT Scores   : correct=0.6846  rank-1=0.7679  gap=0.0833
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7679  'ENCICARB INJECTION 1K'  (ENCICARB)
+     2. [ ] 0.6846  'ENCICARB INJECTION 100MG/2ML'  (ENCICARB)
+     3. [ ] 0.6480  'ENCICARB INJECTION 500MG/10ML'  (ENCICARB)
+     4. [ ] 0.6157  'ENCICARB INJECTION 750MG/15ML'  (ENCICARB)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'AMARYL M FORET 1 TAB'
+  Correct     : AMARYL M FORTE 1MG TABLET 10x15T
+              : brand=AMARYL  code=2
+              : strengths=[('1', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : AMARYL M 1MG TABLET 8x20T
+              : brand=AMARYL
+              : strengths=[('1', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.7841  rank-1=0.8159  gap=0.0318
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8159  'AMARYL M 1MG TABLET 8x20T'  (AMARYL)
+     2. [ ] 0.7841  'AMARYL M FORTE 1MG TABLET 10x15T'  (AMARYL)
+     3. [ ] 0.7336  'AMARYL M 2MG TABLET 8x20T'  (AMARYL)
+     4. [ ] 0.7312  'AMARYL 1MG TABLET 10x30T'  (AMARYL)
+     5. [ ] 0.7219  'AMARYL M FORTE 2MG TABLET 10x15T'  (AMARYL)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA DM 100/500 1X10'
+  Correct     : VYLDA DM 100/5/500 TABLET 1x10T
+              : brand=VYLDA  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA DM 100/10/500 TABLET 1x10T
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.9629  rank-1=0.9646  gap=0.0017
+  FT Rank     : 2  (baseline was rank 4)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9646  'VYLDA DM 100/10/500 TABLET 1x10T'  (VYLDA)
+     2. [ ] 0.9629  'VYLDA DM 100/5/500 TABLET 1x10T'  (VYLDA)
+     3. [ ] 0.9211  'VYLDA DM 100/5/1000 TABLET 1x10T'  (VYLDA)
+     4. [ ] 0.9159  'VYLDA DM 100/10/1000 TABLET 1x10T'  (VYLDA)
+     5. [ ] 0.8046  'VYLDA D100/10 TABLET 1X10T'  (VYLDA)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ENCICARB 1K INJ 1 VIALEMC60 1 VIAL'
+  Correct     : ENCICARB INJECTION 100MG/2ML
+              : brand=ENCICARB  code=2
+              : strengths=[('100', 'MG'), ('2', 'ML')]  forms=[INJECTION]
+  Rank-1 Pred : ENCICARB INJECTION 1K
+              : brand=ENCICARB
+              : strengths=[]  forms=[INJECTION]
+  FT Scores   : correct=0.6635  rank-1=0.7651  gap=0.1016
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7651  'ENCICARB INJECTION 1K'  (ENCICARB)
+     2. [ ] 0.6635  'ENCICARB INJECTION 100MG/2ML'  (ENCICARB)
+     3. [ ] 0.6346  'ENCICARB INJECTION 500MG/10ML'  (ENCICARB)
+     4. [ ] 0.5870  'ENCICARB INJECTION 750MG/15ML'  (ENCICARB)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'CORDARONE 100X20X15 20 20'
+  Correct     : CORDARONE X 200 MG TABLET 10x15T
+              : brand=CORDARONE  code=2
+              : strengths=[('200', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : CORDARONE 100 MG TABLET 20x15T
+              : brand=CORDARONE
+              : strengths=[('100', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.8222  rank-1=0.9197  gap=0.0975
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : strength/dosage confusion; pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9197  'CORDARONE 100 MG TABLET 20x15T'  (CORDARONE)
+     2. [ ] 0.8222  'CORDARONE X 200 MG TABLET 10x15T'  (CORDARONE)
+     3. [ ] 0.7687  'CORDARONE 150 MG/3ML INJECTION'  (CORDARONE)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'GALOP PLUS 5X1X10 1*10'
+  Correct     : GALOP PLUS-5 TABLETS
+              : brand=GALOP  code=2
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : GALOP PLUS-10 TABLETS
+              : brand=GALOP
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.8695  rank-1=0.8928  gap=0.0233
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : OCR/noise issue
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8928  'GALOP PLUS-10 TABLETS'  (GALOP)
+     2. [ ] 0.8695  'GALOP PLUS-5 TABLETS'  (GALOP)
+     3. [ ] 0.7849  'GALOP 10 MG TABLETS'  (GALOP)
+     4. [ ] 0.7787  'GALOP 5 MG TABLETS'  (GALOP)
+     5. [ ] 0.7306  'GALOP 20 MG TABLETS'  (GALOP)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA OD 10 TAB'
+  Correct     : VYLDA OD 50 TABLET 1X15T
+              : brand=VYLDA  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA OD 100 TABLETS
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.7918  rank-1=0.8602  gap=0.0684
+  FT Rank     : 2  (baseline was rank 0)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8602  'VYLDA OD 100 TABLETS'  (VYLDA)
+     2. [ ] 0.7918  'VYLDA OD 50 TABLET 1X15T'  (VYLDA)
+     3. [ ] 0.7829  'VYLDA D100/10 TABLET 1X10T'  (VYLDA)
+     4. [ ] 0.7789  'VYLDA TABLET'  (VYLDA)
+     5. [ ] 0.7374  'VYLDA D100/5 TABLET 1X10T'  (VYLDA)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'LOBACOR 510T 10T'
+  Correct     : LOBACOR 5 TABLET
+              : brand=LOBACOR  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : LOBACOR 10 TABLET
+              : brand=LOBACOR
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.6181  rank-1=0.7307  gap=0.1126
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7307  'LOBACOR 10 TABLET'  (LOBACOR)
+     2. [ ] 0.6181  'LOBACOR 5 TABLET'  (LOBACOR)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'S NUMLO 5 4515'
+  Correct     : S-NUMLO 5 MG TABLET 1x15 T
+              : brand=S-NUMLO  code=2
+              : strengths=[('5', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : S-NUMLO 5 MG TABLET
+              : brand=S-NUMLO
+              : strengths=[('5', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.7688  rank-1=0.7802  gap=0.0114
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7802  'S-NUMLO 5 MG TABLET'  (S-NUMLO)
+     2. [ ] 0.7688  'S-NUMLO 5 MG TABLET 1x15 T'  (S-NUMLO)
+     3. [ ] 0.6479  'S-NUMLO 2.5 MG TABLET 1x15 T'  (S-NUMLO)
+     4. [ ] 0.6425  'S-NUMLO 2.5 MG TABLET'  (S-NUMLO)
+     5. [ ] 0.5991  'S-NUMLO 1.25 MG TABLET'  (S-NUMLO)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'LASIX-40MG DPCO'
+  Correct     : LASIX 40 MG TABLET 80x15T
+              : brand=LASIX  code=2
+              : strengths=[('40', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : LASIX 40 MG/4ML INJECTION
+              : brand=LASIX
+              : strengths=[('40', 'MG'), ('4', 'ML')]  forms=[INJECTION]
+  FT Scores   : correct=0.7156  rank-1=0.7192  gap=0.0036
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : dosage-form confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7192  'LASIX 40 MG/4ML INJECTION'  (LASIX)
+     2. [ ] 0.7156  'LASIX 40 MG TABLET 80x15T'  (LASIX)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ATOREC-10 TAB D 1X10TAB'
+  Correct     : ATOREC 10 MG TABLET
+              : brand=ATOREC  code=2
+              : strengths=[('10', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : ATOREC - D 3 TABLETS
+              : brand=ATOREC
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.7586  rank-1=0.8144  gap=0.0558
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8144  'ATOREC - D 3 TABLETS'  (ATOREC)
+     2. [ ] 0.7586  'ATOREC 10 MG TABLET'  (ATOREC)
+     3. [ ] 0.7524  'ATOREC - 20 D 3 TABLETS'  (ATOREC)
+     4. [ ] 0.6784  'ATOREC\xa0 5 MG TABLET'  (ATOREC)
+     5. [ ] 0.6611  'ATOREC GOLD 10  10X10 C'  (ATOREC)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA-DM100/1000/11X10TAB'
+  Correct     : VYLDA DM 100/5/1000 TABLET 1x10T
+              : brand=VYLDA  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA DM 100/10/1000 TABLET 1x10T
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8936  rank-1=0.8971  gap=0.0035
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8971  'VYLDA DM 100/10/1000 TABLET 1x10T'  (VYLDA)
+     2. [ ] 0.8936  'VYLDA DM 100/5/1000 TABLET 1x10T'  (VYLDA)
+     3. [ ] 0.8522  'VYLDA DM 100/10/500 TABLET 1x10T'  (VYLDA)
+     4. [ ] 0.8494  'VYLDA D100/10 TABLET 1X10T'  (VYLDA)
+     5. [ ] 0.8422  'VYLDA DM 100/5/500 TABLET 1x10T'  (VYLDA)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'COGNITRAC 60MG INJ 60MG 1X60MG'
+  Correct     : COGNITRAC L INJECTION
+              : brand=COGNITRAC  code=2
+              : strengths=[]  forms=[INJECTION]
+  Rank-1 Pred : COGNITRAC INJECTION 60 MG
+              : brand=COGNITRAC
+              : strengths=[('60', 'MG')]  forms=[INJECTION]
+  FT Scores   : correct=0.6818  rank-1=0.8581  gap=0.1763
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8581  'COGNITRAC INJECTION 60 MG'  (COGNITRAC)
+     2. [ ] 0.6818  'COGNITRAC L INJECTION'  (COGNITRAC)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'EFNOCAR MX 40/25 T 10T'
+  Correct     : EFNOCAR-T 40/40  TABLET
+              : brand=EFNOCAR  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : EFNOCAR-MX 40/25 TABLETS
+              : brand=EFNOCAR
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.8197  rank-1=0.9226  gap=0.1029
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9226  'EFNOCAR-MX 40/25 TABLETS'  (EFNOCAR)
+     2. [ ] 0.8197  'EFNOCAR-T 40/40  TABLET'  (EFNOCAR)
+     3. [ ] 0.8146  'EFNOCAR-T 20/40 TABLET'  (EFNOCAR)
+     4. [ ] 0.7719  'EFNOCAR 40 TABLETS'  (EFNOCAR)
+     5. [ ] 0.7584  'EFNOCAR-CT-40/6.25 TABLETS'  (EFNOCAR)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA 50 2X15EMC198 2 *15'
+  Correct     : VYLDA TABLETS 1X15 T
+              : brand=VYLDA  code=2
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : VYLDA OD 50 TABLET 1X15T
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.7822  rank-1=0.7826  gap=0.0004
+  FT Rank     : 2  (baseline was rank 1)
+  Error cat   : OCR/noise issue
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7826  'VYLDA OD 50 TABLET 1X15T'  (VYLDA)
+     2. [ ] 0.7822  'VYLDA TABLETS 1X15 T'  (VYLDA)
+     3. [ ] 0.6509  'VYLDA TABLET'  (VYLDA)
+     4. [ ] 0.5633  'VYLDA P TABLET 1x10T'  (VYLDA)
+     5. [ ] 0.5560  'VYLDA OD 100 TABLETS'  (VYLDA)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'TEMSAN CT 40/6.25 10*10S'
+  Correct     : TEMSAN CT-6.25 TABLETS
+              : brand=TEMSAN  code=2
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : TEMSAN CT 40/12.5 MG TABLET 10X10
+              : brand=TEMSAN
+              : strengths=[('12.5', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.8675  rank-1=0.8838  gap=0.0163
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : OCR/noise issue; pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8838  'TEMSAN CT 40/12.5 MG TABLET 10X10'  (TEMSAN)
+     2. [ ] 0.8675  'TEMSAN CT-6.25 TABLETS'  (TEMSAN)
+     3. [ ] 0.7979  'TEMSAN CT TABLETS'  (TEMSAN)
+     4. [ ] 0.7299  'TEMSAN 40 MG. TABLETS'  (TEMSAN)
+     5. [ ] 0.7137  'TEMSAN - 40 CV TABLETS'  (TEMSAN)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'CARDACE AM 55X2X15BOX 10 S'
+  Correct     : CARDACE AM 5 TABLET 10x15T
+              : brand=CARDACE  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : CARDACE AM 10 TABLET 10x15T
+              : brand=CARDACE
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8281  rank-1=0.8419  gap=0.0138
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8419  'CARDACE AM 10 TABLET 10x15T'  (CARDACE)
+     2. [ ] 0.8281  'CARDACE AM 5 TABLET 10x15T'  (CARDACE)
+     3. [ ] 0.7813  'CARDACE AM 2.5 TABLET 10x15T'  (CARDACE)
+     4. [ ] 0.7411  'CARDACE 10 MG TABLET 10x15T'  (CARDACE)
+     5. [ ] 0.7264  'CARDACE 5 MG TABLET 10x15T'  (CARDACE)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'CONSIUM 100 INJ UNSURE'
+  Correct     : CONSIUM 100(CARMUSTINE FOR INJ.)
+              : brand=CONSIUM  code=2
+              : strengths=[]  forms=[INJ]
+  Rank-1 Pred : DILUENT FOR CONSIUM 100 INJ
+              : brand=CONSIUM
+              : strengths=[]  forms=[INJ]
+  FT Scores   : correct=0.6995  rank-1=0.8238  gap=0.1243
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8238  'DILUENT FOR CONSIUM 100 INJ'  (CONSIUM)
+     2. [ ] 0.6995  'CONSIUM 100(CARMUSTINE FOR INJ.)'  (CONSIUM)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'ASOMEX-TM510X1515 S'
+  Correct     : ASOMEX - TM 5 TABLETS 1X15T
+              : brand=ASOMEX  code=2
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : ASOMEX - TM TABLETS 1X15T
+              : brand=ASOMEX
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.7684  rank-1=0.8285  gap=0.0601
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8285  'ASOMEX - TM TABLETS 1X15T'  (ASOMEX)
+     2. [ ] 0.7684  'ASOMEX - TM 5 TABLETS 1X15T'  (ASOMEX)
+     3. [ ] 0.6757  'ASOMEX - TM TABLETS'  (ASOMEX)
+     4. [ ] 0.6730  'ASOMEX 5 MG TABLET 1x15T'  (ASOMEX)
+     5. [ ] 0.6489  'ASOMEX - TM 5 TABLETS'  (ASOMEX)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'TEMSAN-80 TAB 115(1015)BOX'
+  Correct     : TEMSAN 80 MG TABLETS 10x15T
+              : brand=TEMSAN  code=2
+              : strengths=[('80', 'MG')]  forms=[TABLETS]
+  Rank-1 Pred : TEMSAN 80 MG. TABLETS
+              : brand=TEMSAN
+              : strengths=[('80', 'MG')]  forms=[TABLETS]
+  FT Scores   : correct=0.6515  rank-1=0.6525  gap=0.0010
+  FT Rank     : 2  (baseline was rank 0)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.6525  'TEMSAN 80 MG. TABLETS'  (TEMSAN)
+     2. [ ] 0.6515  'TEMSAN 80 MG TABLETS 10x15T'  (TEMSAN)
+     3. [ ] 0.6412  'TEMSAN  80 H TABLETS'  (TEMSAN)
+     4. [ ] 0.6321  'TEMSAN 80 CT TABLETS'  (TEMSAN)
+     5. [ ] 0.6271  'TEMSAN 80 H TABLETS 1X15T'  (TEMSAN)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'A-BEC 300MG 30TAB'
+  Correct     : A-BEC TABLET 60T
+              : brand=A-BEC  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : A BEC 300 MG TABLET 30s
+              : brand=A-BEC
+              : strengths=[('300', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.7122  rank-1=0.8835  gap=0.1713
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8835  'A BEC 300 MG TABLET 30s'  (A-BEC)
+     2. [ ] 0.7122  'A-BEC TABLET 60T'  (A-BEC)
+     3. [ ] 0.6518  'A-BEC L TABLETS'  (A-BEC)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'DAPAGZA M 10/1000 \\*10 TA'
+  Correct     : DAPAGZA M10/1000 1X10T
+              : brand=DAPAGZA  code=2
+              : strengths=[]  forms=[]
+  Rank-1 Pred : DAPAGZA M 5/1000 1X10T
+              : brand=DAPAGZA
+              : strengths=[]  forms=[]
+  FT Scores   : correct=0.8780  rank-1=0.9301  gap=0.0521
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : OCR/noise issue; product-family/sub-brand confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9301  'DAPAGZA M 5/1000 1X10T'  (DAPAGZA)
+     2. [ ] 0.8780  'DAPAGZA M10/1000 1X10T'  (DAPAGZA)
+     3. [ ] 0.8557  'DAPAGZA M 10/ 500 1X10T'  (DAPAGZA)
+     4. [ ] 0.7495  'DAPAGZA 10 TABLET 1X15T'  (DAPAGZA)
+     5. [ ] 0.7371  'DAPAGZA L 10/5 TABLET 10x10T'  (DAPAGZA)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'TEMSAN CT 40/6.25 10'
+  Correct     : TEMSAN CT-6.25 TABLETS
+              : brand=TEMSAN  code=2
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : TEMSAN CT 40/12.5 MG TABLET 10X10
+              : brand=TEMSAN
+              : strengths=[('12.5', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.8815  rank-1=0.8862  gap=0.0047
+  FT Rank     : 2  (baseline was rank 1)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8862  'TEMSAN CT 40/12.5 MG TABLET 10X10'  (TEMSAN)
+     2. [ ] 0.8815  'TEMSAN CT-6.25 TABLETS'  (TEMSAN)
+     3. [ ] 0.8105  'TEMSAN CT TABLETS'  (TEMSAN)
+     4. [ ] 0.7506  'TEMSAN 40 MG. TABLETS'  (TEMSAN)
+     5. [ ] 0.7332  'TEMSAN - 40 CV TABLETS'  (TEMSAN)
+
+
+  ── CASE (rank 2, group C) ─────────────────────────────────────────────
+  OCR Input   : 'TEMSAN BS 40/2. 1X10 PCS'
+  Correct     : TEMSAN BS 5/40 TABLET 10x10T
+              : brand=TEMSAN  code=2
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : TEMSAN BS 2.5/40 TABLET 10x10T
+              : brand=TEMSAN
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8349  rank-1=0.8690  gap=0.0341
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8690  'TEMSAN BS 2.5/40 TABLET 10x10T'  (TEMSAN)
+     2. [ ] 0.8349  'TEMSAN BS 5/40 TABLET 10x10T'  (TEMSAN)
+     3. [ ] 0.7549  'TEMSAN 40 MG. TABLETS'  (TEMSAN)
+     4. [ ] 0.7224  'TEMSAN - 40 CV TABLETS'  (TEMSAN)
+     5. [ ] 0.7159  'TEMSAN 40 MG TABLETS 10x15T'  (TEMSAN)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'FULVIRA INJECTION 2X5ML PF 1X1'
+  Correct     : FULVIRA 250 MG INJ 2X5 ML PFS
+              : brand=FULVIRA  code=2
+              : strengths=[('250', 'MG'), ('5', 'ML')]  forms=[INJ]
+  Rank-1 Pred : FULVIRA INJECTION 1X5 ML PFS
+              : brand=FULVIRA
+              : strengths=[('5', 'ML')]  forms=[INJECTION]
+  FT Scores   : correct=0.7629  rank-1=0.9274  gap=0.1645
+  FT Rank     : 2  (baseline was rank 2)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9274  'FULVIRA INJECTION 1X5 ML PFS'  (FULVIRA)
+     2. [ ] 0.7629  'FULVIRA 250 MG INJ 2X5 ML PFS'  (FULVIRA)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'OROFER S INJ.5ML'
+  Correct     : OROFER S 100 INJECTION
+              : brand=OROFER  code=2
+              : strengths=[]  forms=[INJECTION]
+  Rank-1 Pred : OROFER S INJECTION 2.5 ML
+              : brand=OROFER
+              : strengths=[('2.5', 'ML')]  forms=[INJECTION]
+  FT Scores   : correct=0.7506  rank-1=0.7985  gap=0.0479
+  FT Rank     : 2  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7985  'OROFER S INJECTION 2.5 ML'  (OROFER)
+     2. [ ] 0.7506  'OROFER S 100 INJECTION'  (OROFER)
+     3. [ ] 0.7315  'OROFER S 200 INJECTION 10 ML'  (OROFER)
+     4. [ ] 0.6724  'OROFER CAPSULES'  (OROFER)
+     5. [ ] 0.6254  'OROFER D3 TABLETS 1X10 T'  (OROFER)
+
+
+  ── CASE (rank 2, group A) ─────────────────────────────────────────────
+  OCR Input   : 'AMARYL M F/TE 1MG'
+  Correct     : AMARYL M FORTE 1MG TABLET 10x15T
+              : brand=AMARYL  code=2
+              : strengths=[('1', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : AMARYL M 1MG TABLET 8x20T
+              : brand=AMARYL
+              : strengths=[('1', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.8095  rank-1=0.8359  gap=0.0264
+  FT Rank     : 2  (baseline was rank 5)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8359  'AMARYL M 1MG TABLET 8x20T'  (AMARYL)
+     2. [ ] 0.8095  'AMARYL M FORTE 1MG TABLET 10x15T'  (AMARYL)
+     3. [ ] 0.7768  'AMARYL M 2MG TABLET 8x20T'  (AMARYL)
+     4. [ ] 0.7687  'AMARYL M FORTE 2MG TABLET 10x15T'  (AMARYL)
+     5. [ ] 0.7546  'AMARYL 1MG TABLET 10x30T'  (AMARYL)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ASOMEX LT Tab 1X10s'
+  Correct     : ASOMEX LT 2.5 MG TABLET
+              : brand=ASOMEX  code=3
+              : strengths=[('2.5', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : ASOMEX LT TABLET 1X15T
+              : brand=ASOMEX
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8336  rank-1=0.8664  gap=0.0328
+  FT Rank     : 3  (baseline was rank 0)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8664  'ASOMEX LT TABLET 1X15T'  (ASOMEX)
+     2. [ ] 0.8626  'ASOMEX LT 5 MG TABLET'  (ASOMEX)
+     3. [ ] 0.8336  'ASOMEX LT 2.5 MG TABLET'  (ASOMEX)
+     4. [ ] 0.7794  'ASOMEX LTH TABLETS'  (ASOMEX)
+     5. [ ] 0.7161  'ASOMEX LTH 5 TABLETS'  (ASOMEX)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ROSUVAS-EZ 10 TAB 110S 27553 10S'
+  Correct     : ROSUVAS EZ 20 MG TABLET 1x10T
+              : brand=ROSUVAS EZ  code=3
+              : strengths=[('20', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : ROSUVAS EZ 40 TABLET 1x10T
+              : brand=ROSUVAS EZ
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.7658  rank-1=0.8240  gap=0.0582
+  FT Rank     : 3  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8240  'ROSUVAS EZ 40 TABLET 1x10T'  (ROSUVAS EZ)
+     2. [ ] 0.8070  'ROSUVAS EZ-10 TABLETS'  (ROSUVAS EZ)
+     3. [ ] 0.7658  'ROSUVAS EZ 20 MG TABLET 1x10T'  (ROSUVAS EZ)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'LAZID TAB60 60 Pcs'
+  Correct     : LAZID TABLETS
+              : brand=LAZID  code=3
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : LAZID N TABLET 1x60 T
+              : brand=LAZID
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.6982  rank-1=0.8071  gap=0.1089
+  FT Rank     : 3  (baseline was rank 5)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8071  'LAZID N TABLET 1x60 T'  (LAZID)
+     2. [ ] 0.7896  'LAZID 150/300 MG TABLET 60s'  (LAZID)
+     3. [ ] 0.6982  'LAZID TABLETS'  (LAZID)
+     4. [ ] 0.6713  'LAZID N TABLET'  (LAZID)
+     5. [ ] 0.6504  'LAZID E KIT 150/300/600 MG TABLET 2X5'  (LAZID)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'LAZID TAB 1X60 60'
+  Correct     : LAZID TABLETS
+              : brand=LAZID  code=3
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : LAZID N TABLET 1x60 T
+              : brand=LAZID
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.7552  rank-1=0.8589  gap=0.1037
+  FT Rank     : 3  (baseline was rank 5)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8589  'LAZID N TABLET 1x60 T'  (LAZID)
+     2. [ ] 0.8334  'LAZID 150/300 MG TABLET 60s'  (LAZID)
+     3. [ ] 0.7552  'LAZID TABLETS'  (LAZID)
+     4. [ ] 0.7203  'LAZID N TABLET'  (LAZID)
+     5. [ ] 0.6879  'LAZID E KIT 150/300/600 MG TABLET 2X5'  (LAZID)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'NUMLO-D 5MG. TAB. 15S'
+  Correct     : NUMLO-D 5 TABLET
+              : brand=NUMLO  code=3
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : NUMLO-D 5 TABLET 1x15 T
+              : brand=NUMLO
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8550  rank-1=0.9224  gap=0.0674
+  FT Rank     : 3  (baseline was rank 8)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9224  'NUMLO-D 5 TABLET 1x15 T'  (NUMLO)
+     2. [ ] 0.8993  'NUMLO-D TABLET 1X15 T'  (NUMLO)
+     3. [ ] 0.8550  'NUMLO-D 5 TABLET'  (NUMLO)
+     4. [ ] 0.8115  'NUMLO-D TABLET'  (NUMLO)
+     5. [ ] 0.6710  'NUMLO-AT TABLET 1X15 T'  (NUMLO)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA D / TAB S'
+  Correct     : VYLDA D100/5 TABLET 1X10T
+              : brand=VYLDA  code=3
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA TABLET
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.7675  rank-1=0.8011  gap=0.0336
+  FT Rank     : 3  (baseline was rank 10)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8011  'VYLDA TABLET'  (VYLDA)
+     2. [ ] 0.7895  'VYLDA D100/10 TABLET 1X10T'  (VYLDA)
+     3. [ ] 0.7675  'VYLDA D100/5 TABLET 1X10T'  (VYLDA)
+     4. [ ] 0.7444  'VYLDA DM 100/10/500 TABLET 1x10T'  (VYLDA)
+     5. [ ] 0.7364  'VYLDA DM 100/5/500 TABLET 1x10T'  (VYLDA)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA OD TAB S'
+  Correct     : VYLDA OD 50 TABLET 1X15T
+              : brand=VYLDA  code=3
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA OD 100 TABLETS
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.7389  rank-1=0.8193  gap=0.0804
+  FT Rank     : 3  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8193  'VYLDA OD 100 TABLETS'  (VYLDA)
+     2. [ ] 0.7815  'VYLDA TABLET'  (VYLDA)
+     3. [ ] 0.7389  'VYLDA OD 50 TABLET 1X15T'  (VYLDA)
+     4. [ ] 0.6928  'VYLDA TABLETS 1X15 T'  (VYLDA)
+     5. [ ] 0.6695  'VYLDA P TABLET 1x10T'  (VYLDA)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ASOMEX 2.5MG TAB. 15S(ASO25T) 15S'
+  Correct     : ASOMEX 1.25 TABLETS 1X15T
+              : brand=ASOMEX  code=3
+              : strengths=[]  forms=[TABLETS]
+  Rank-1 Pred : ASOMEX 2.5 MG TABLET 1X15T
+              : brand=ASOMEX
+              : strengths=[('2.5', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.8039  rank-1=0.8559  gap=0.0520
+  FT Rank     : 3  (baseline was rank 0)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8559  'ASOMEX 2.5 MG TABLET 1X15T'  (ASOMEX)
+     2. [ ] 0.8049  'ASOMEX AT 2.5 MG TABLET 1X15T'  (ASOMEX)
+     3. [ ] 0.8039  'ASOMEX 1.25 TABLETS 1X15T'  (ASOMEX)
+     4. [ ] 0.7181  'ASOMEX 2.5 MG TABLET'  (ASOMEX)
+     5. [ ] 0.7123  'ASOMEX 2.5 MG TABLET 1x30T'  (ASOMEX)
+
+
+  ── CASE (rank 3, group A) ─────────────────────────────────────────────
+  OCR Input   : 'PROXYM 300ER 15S'
+  Correct     : PROXYM ER TABLET 1X15T
+              : brand=PROXYM  code=3
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : PROXYM ER 200 TABLETS 15 T
+              : brand=PROXYM
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.6550  rank-1=0.8043  gap=0.1493
+  FT Rank     : 3  (baseline was rank 3)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8043  'PROXYM ER 200 TABLETS 15 T'  (PROXYM)
+     2. [ ] 0.6692  'PROXYM 300 TABLETS'  (PROXYM)
+     3. [ ] 0.6550  'PROXYM ER TABLET 1X15T'  (PROXYM)
+     4. [ ] 0.6265  'PROXYM GEL 30 GM'  (PROXYM)
+     5. [ ] 0.5857  'PROXYM ER 200 TABLETS'  (PROXYM)
+
+
+  ── CASE (rank 4, group A) ─────────────────────────────────────────────
+  OCR Input   : 'ASOMEX AT TAB 5MG 10X15 115TAB'
+  Correct     : ASOMEX AT 2.5 MG TABLET 1X15T
+              : brand=ASOMEX  code=4
+              : strengths=[('2.5', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : ASOMEX AT 5 MG TABLET 1X15T
+              : brand=ASOMEX
+              : strengths=[('5', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.6992  rank-1=0.8296  gap=0.1304
+  FT Rank     : 4  (baseline was rank 2)
+  Error cat   : strength/dosage confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8296  'ASOMEX AT 5 MG TABLET 1X15T'  (ASOMEX)
+     2. [ ] 0.8145  'ASOMEX 5 MG TABLET 1x15T'  (ASOMEX)
+     3. [ ] 0.6997  'ASOMEX AT 5 MG TABLET'  (ASOMEX)
+     4. [ ] 0.6992  'ASOMEX AT 2.5 MG TABLET 1X15T'  (ASOMEX)
+     5. [ ] 0.6912  'ASOMEX 2.5 MG TABLET 1X15T'  (ASOMEX)
+
+
+  ── CASE (rank 4, group A) ─────────────────────────────────────────────
+  OCR Input   : 'EMILDAP 10 TAB 15 S(EMI1T) 15 S'
+  Correct     : EMILDAP S 10/100 TABLET 1X10T
+              : brand=EMILDAP  code=4
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : EMILDAP 10 TABLET 1X15T
+              : brand=EMILDAP
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.6581  rank-1=0.8606  gap=0.2025
+  FT Rank     : 4  (baseline was rank 6)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8606  'EMILDAP 10 TABLET 1X15T'  (EMILDAP)
+     2. [ ] 0.7623  'EMILDAP 5 TABLET 1X15T'  (EMILDAP)
+     3. [ ] 0.6710  'EMILDAP GM 10/1/1000 TABLET 10x10T'  (EMILDAP)
+     4. [ ] 0.6581  'EMILDAP S 10/100 TABLET 1X10T'  (EMILDAP)
+     5. [ ] 0.6469  'EMILDAP M10/1000 1X10T'  (EMILDAP)
+
+
+  ── CASE (rank 4, group A) ─────────────────────────────────────────────
+  OCR Input   : 'EMTOFA 2% OINTMENT'
+  Correct     : EMTOFA OINTMENT 15GM
+              : brand=EMTOFA  code=4
+              : strengths=[('15', 'GM')]  forms=[OINTMENT]
+  Rank-1 Pred : EMTOFA OINTMENT 10 GM
+              : brand=EMTOFA
+              : strengths=[('10', 'GM')]  forms=[OINTMENT]
+  FT Scores   : correct=0.6993  rank-1=0.7561  gap=0.0568
+  FT Rank     : 4  (baseline was rank 4)
+  Error cat   : strength/dosage confusion; pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7561  'EMTOFA OINTMENT 10 GM'  (EMTOFA)
+     2. [ ] 0.7530  'EMTOFA OINTMENT 30GM'  (EMTOFA)
+     3. [ ] 0.7412  'EMTOFA OINTMENT 20 GM'  (EMTOFA)
+     4. [ ] 0.6993  'EMTOFA OINTMENT 15GM'  (EMTOFA)
+     5. [ ] 0.6497  'EMTOFA 5 MG TABLET 10x10T'  (EMTOFA)
+
+
+  ── CASE (rank 4, group C) ─────────────────────────────────────────────
+  OCR Input   : 'VYLDA-DM100/10/5'
+  Correct     : VYLDA DM 100/10/500 TABLET 1x10T
+              : brand=VYLDA  code=4
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : VYLDA DM 100/5/1000 TABLET 1x10T
+              : brand=VYLDA
+              : strengths=[]  forms=[TABLET]
+  FT Scores   : correct=0.8769  rank-1=0.9046  gap=0.0277
+  FT Rank     : 4  (baseline was rank 4)
+  Error cat   : very similar legitimate products
+  Fixability  : C – genuinely ambiguous
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.9046  'VYLDA DM 100/5/1000 TABLET 1x10T'  (VYLDA)
+     2. [ ] 0.8884  'VYLDA DM 100/5/500 TABLET 1x10T'  (VYLDA)
+     3. [ ] 0.8809  'VYLDA DM 100/10/1000 TABLET 1x10T'  (VYLDA)
+     4. [ ] 0.8769  'VYLDA DM 100/10/500 TABLET 1x10T'  (VYLDA)
+     5. [ ] 0.8724  'VYLDA D100/5 TABLET 1X10T'  (VYLDA)
+
+
+  ── CASE (rank 5, group A) ─────────────────────────────────────────────
+  OCR Input   : 'GALACT 200GM CHOCO GRANULES 200GM'
+  Correct     : GALACT GRANULES CHOCOLATE
+              : brand=GALACT  code=5
+              : strengths=[]  forms=[]
+  Rank-1 Pred : GALACT GRANULE 200 GM ELAICHI
+              : brand=GALACT
+              : strengths=[('200', 'GM')]  forms=[]
+  FT Scores   : correct=0.6845  rank-1=0.8374  gap=0.1529
+  FT Rank     : 5  (baseline was rank 7)
+  Error cat   : product-family/sub-brand confusion; pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8374  'GALACT GRANULE 200 GM ELAICHI'  (GALACT)
+     2. [ ] 0.7636  'GALACT PLUS NUTRITION POWDER 200GM'  (GALACT)
+     3. [ ] 0.7054  'GALACT GRANULES'  (GALACT)
+     4. [ ] 0.6906  'GALACT GRANULES 600GM CHOCOLATE'  (GALACT)
+     5. [ ] 0.6845  'GALACT GRANULES CHOCOLATE'  (GALACT)
+
+
+  ── CASE (rank 5, group A) ─────────────────────────────────────────────
+  OCR Input   : 'AMARYL.M.2MG.TAB 1*20'
+  Correct     : AMARYL 2MG TABLET 15x30T
+              : brand=AMARYL  code=5
+              : strengths=[('2', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : AMARYL M 2MG TABLET 8x20T
+              : brand=AMARYL
+              : strengths=[('2', 'MG')]  forms=[TABLET]
+  FT Scores   : correct=0.7443  rank-1=0.8959  gap=0.1516
+  FT Rank     : 5  (baseline was rank 3)
+  Error cat   : OCR/noise issue; pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.8959  'AMARYL M 2MG TABLET 8x20T'  (AMARYL)
+     2. [ ] 0.8400  'AMARYL M 1MG TABLET 8x20T'  (AMARYL)
+     3. [ ] 0.8146  'AMARYL M FORTE 2MG TABLET 10x15T'  (AMARYL)
+     4. [ ] 0.7619  'AMARYL MV 2MG TABLET 10x15T'  (AMARYL)
+     5. [ ] 0.7443  'AMARYL 2MG TABLET 15x30T'  (AMARYL)
+
+
+  ── CASE (rank 6, group A) ─────────────────────────────────────────────
+  OCR Input   : 'NUMLOM 5 TAB'
+  Correct     : NUMLO TABLET 2.5 MG
+              : brand=NUMLO  code=6
+              : strengths=[('2.5', 'MG')]  forms=[TABLET]
+  Rank-1 Pred : NUMLO-TM 5 TABLETS
+              : brand=NUMLO
+              : strengths=[]  forms=[TABLETS]
+  FT Scores   : correct=0.6237  rank-1=0.7395  gap=0.1158
+  FT Rank     : 6  (baseline was rank 0)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7395  'NUMLO-TM 5 TABLETS'  (NUMLO)
+     2. [ ] 0.7259  'NUMLO-TM 5 TABLETS 1X15 T'  (NUMLO)
+     3. [ ] 0.7124  'NUMLO-M 5 TABLETS 10X10 T'  (NUMLO)
+     4. [ ] 0.7033  'NUMLO-D 5 TABLET'  (NUMLO)
+     5. [ ] 0.6802  'NUMLO-D 5 TABLET 1x15 T'  (NUMLO)
+
+
+  ── CASE (rank 7, group A) ─────────────────────────────────────────────
+  OCR Input   : 'OROFER CAP 15S'
+  Correct     : OROFER S INJECTION 2.5 ML
+              : brand=OROFER  code=7
+              : strengths=[('2.5', 'ML')]  forms=[INJECTION]
+  Rank-1 Pred : OROFER DROPS 15 ML
+              : brand=OROFER
+              : strengths=[('15', 'ML')]  forms=[DROPS]
+  FT Scores   : correct=0.6039  rank-1=0.7708  gap=0.1669
+  FT Rank     : 7  (baseline was rank 5)
+  Error cat   : strength/dosage confusion; dosage-form confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.7708  'OROFER DROPS 15 ML'  (OROFER)
+     2. [ ] 0.7174  'OROFER SYRUP 150 ML'  (OROFER)
+     3. [ ] 0.7150  'OROFER XT TABLET 1x15T'  (OROFER)
+     4. [ ] 0.6758  'OROFER CAPSULES'  (OROFER)
+     5. [ ] 0.6685  'OROFER XT SUSPENSION 150 ML'  (OROFER)
+
+
+  ── CASE (rank 8, group A) ─────────────────────────────────────────────
+  OCR Input   : 'CELOL (10 TAB) 10TAB'
+  Correct     : FERIUM XT TABLET
+              : brand=FERIUM  code=8
+              : strengths=[]  forms=[TABLET]
+  Rank-1 Pred : FERIUM CHEWABLE 100 MG TAB 10X10 T
+              : brand=FERIUM
+              : strengths=[('100', 'MG')]  forms=[CHEWABLE; TAB]
+  FT Scores   : correct=0.3479  rank-1=0.4491  gap=0.1012
+  FT Rank     : 8  (baseline was rank 4)
+  Error cat   : pack/sub-variant confusion
+  Fixability  : A – Step 3 should fix
+
+  Top-5 candidates (fine-tuned):
+     1. [✗] 0.4491  'FERIUM CHEWABLE 100 MG TAB 10X10 T'  (FERIUM)
+     2. [ ] 0.4432  'FERIUM CHEWABLE TABLETS 10X10 T'  (FERIUM)
+     3. [ ] 0.3963  'FERIUM 50 CHEWABLE TABLET 10'  (FERIUM)
+     4. [ ] 0.3907  'FERIUM XT - Z TABLETS 1X10 T'  (FERIUM)
+     5. [ ] 0.3893  'FERIUM XT TABLET 10x15T'  (FERIUM)
+
+────────────────────────────────────────────────────────────────────────
+  5. FIXABILITY SUMMARY
+────────────────────────────────────────────────────────────────────────
+  A — Step 3 structured scoring should fix :  38  (81%)
+  B — Retriever itself needs improvement   :   0  (0%)
+  C — Genuinely ambiguous                  :   9  (19%)
+
+  Error category frequency:
+    pack/sub-variant confusion              :  31  (66%)
+    very similar legitimate products        :   9  (19%)
+    OCR/noise issue                         :   5  (11%)
+    strength/dosage confusion               :   4  (9%)
+    dosage-form confusion                   :   3  (6%)
+    product-family/sub-brand confusion      :   2  (4%)
+
+────────────────────────────────────────────────────────────────────────
+  6. RANK TIER ANALYSIS
+────────────────────────────────────────────────────────────────────────
+
+  Rank 2 (29 cases):
+    pack/sub-variant confusion              : 16
+    very similar legitimate products        : 8
+    OCR/noise issue                         : 4
+    dosage-form confusion                   : 2
+    strength/dosage confusion               : 1
+    product-family/sub-brand confusion      : 1
+
+  Rank 3 (9 cases):
+    pack/sub-variant confusion              : 9
+
+  Rank 4+ (9 cases):
+    pack/sub-variant confusion              : 6
+    strength/dosage confusion               : 3
+    very similar legitimate products        : 1
+    product-family/sub-brand confusion      : 1
+    OCR/noise issue                         : 1
+    dosage-form confusion                   : 1
+
+  NOT FOUND (0 cases):
+    (none)
+
+────────────────────────────────────────────────────────────────────────
+  7. STEP 3 READINESS ASSESSMENT
+────────────────────────────────────────────────────────────────────────
+  Fine-tuned Recall@10 = 100% — the correct product is ALWAYS in Top-10.
+  Fine-tuned Recall@1  = 72.4% — 47 groups ranked wrong at position 1.
+
+  Of the 47 non-rank-1 errors:
+    38 are classified as Step-3 fixable (strength/form/pack field matching)
+    0 require retriever improvement
+    9 appear genuinely ambiguous
+
+  RECOMMENDATION: Proceed to Step 3.
+  The dominant error pattern is within-brand confusion on structured fields
+  (strength, form, pack) that a field-matching scoring layer can resolve.
+  The retriever is doing its job — the correct product is always in Top-10.
+
+────────────────────────────────────────────────────────────────────────
+  8. ADDITIONAL TRAINING DATA RECOMMENDATION
+────────────────────────────────────────────────────────────────────────
+  Only 0 retriever-level failures detected.
+  Additional training data is NOT recommended at this stage.
+  Proceed to Step 3 structured scoring first; re-evaluate after.
+
+========================================================================
+  END OF REPORT
+========================================================================

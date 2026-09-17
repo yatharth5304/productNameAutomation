@@ -1,0 +1,45 @@
+==================================================================
+  FINE-TUNING EXPERIMENT REPORT — bge-pharma-v1
+==================================================================
+
+  Base model         : BAAI/bge-base-en-v1.5
+  Fine-tuned model   : f:\Vintyaa\projects\Product Name Automation\models\bge-pharma-v1
+  Train time         : 52.1 min  (67 optimizer steps, 1 epoch)
+  Final train loss   : 0.9585  (started ~1.83 at step 1)
+  Loss at step 25    : 1.207
+  Loss at step 50    : 0.823
+
+──────────────────────────────────────────────────────────────────
+  RETRIEVAL METRICS  (170 unique eval groups, Top-10)
+──────────────────────────────────────────────────────────────────
+  Metric         Baseline   Fine-tuned      Delta
+  ──────────── ────────── ──────────── ──────────
+  Recall@1          42.9%         72.4%      +29.4%
+  Recall@3          80.6%         94.7%      +14.1%
+  Recall@5          92.9%         98.2%       +5.3%
+  Recall@10         95.9%        100.0%       +4.1%
+  MRR              0.6346        0.8373     +0.2026
+
+  Positive NOT in Top-10: 0 (fine-tuned)  vs  7 (baseline)
+
+  Rank distribution — fine-tuned (unique groups):
+    Rank 1         :  123  (72.4%)
+    Rank 2         :   29  (17.1%)
+    Rank 3         :    9  (5.3%)
+    Rank 4         :    4  (2.4%)
+    Rank 5         :    2  (1.2%)
+    Rank 6         :    1  (0.6%)
+    Rank 7         :    1  (0.6%)
+    Rank 8         :    1  (0.6%)
+
+──────────────────────────────────────────────────────────────────
+  FILES WRITTEN
+──────────────────────────────────────────────────────────────────
+  Fine-tuned model            : f:\Vintyaa\projects\Product Name Automation\models\bge-pharma-v1
+  Fine-tuned master embeddings: f:\Vintyaa\projects\Product Name Automation\embeddings\finetuned_master_embeddings.npy
+  Per-row eval results        : f:\Vintyaa\projects\Product Name Automation\finetuned_evaluation_results.csv
+  This report                 : f:\Vintyaa\projects\Product Name Automation\finetuned_evaluation_report.txt
+
+==================================================================
+  END OF REPORT
+==================================================================

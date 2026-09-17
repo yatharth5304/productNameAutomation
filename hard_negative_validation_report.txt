@@ -1,0 +1,132 @@
+========================================================================
+  HARD NEGATIVE MINING — VALIDATION REPORT
+========================================================================
+
+SOURCE FILES
+  training_data.xlsx      : f:\Vintyaa\projects\Product Name Automation\training_data.xlsx
+  PRODUCT_MASTER.xlsx     : f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER.xlsx
+  hard_negative_mining.csv: f:\Vintyaa\projects\Product Name Automation\hard_negative_mining.csv
+
+────────────────────────────────────────────────────────────────────────
+SUMMARY
+────────────────────────────────────────────────────────────────────────
+  Total training rows                  : 1429
+
+  POSITIVE ('Output Should be') reconciliation:
+    Exact match                        : 1410
+    Exact match (multiple master rows) : 0
+    Resolved (safe normalisation)      : 15
+    Ambiguous                          : 0
+    NOT FOUND                          : 4
+
+  EXPLICIT NEGATIVE ('Output_Column') reconciliation:
+    Exact match                        : 1429
+    Exact match (multiple master rows) : 0
+    Resolved (safe normalisation)      : 0
+    Ambiguous                          : 0
+    NOT FOUND                          : 0
+
+  MINED NEGATIVES:
+    Rows with mined negative issues    : 0
+
+  Rows fully valid (no review needed)  : 1425
+  Rows needing manual review           : 4
+
+────────────────────────────────────────────────────────────────────────
+POSITIVE RECONCILIATION DETAILS (non-exact rows)
+────────────────────────────────────────────────────────────────────────
+
+  RESOLVED_UNAMBIGUOUS (15 rows):
+  These are safe to use; code resolved via whitespace/unicode normalisation.
+
+  Excel row 39: 'VONADAY TAB NET RATE 1X30'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 169: 'MESALACURE TABLET 1.2GM NEW MRP Pcs.'
+    Training 'Output Should be' : 'MESALACURE TABLET  1.2GM'
+    Matched master record       : 'MESALACURE TABLET\xa0 1.2GM'  [424440981]
+    Note                        : normalised match (non-breaking space, double-space)
+
+  Excel row 170: 'VONADAY 600/300/30 30TAB'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 343: 'EMCOLZ 0.25 MG TAB 1X10'
+    Training 'Output Should be' : 'EMCLOZ 0.25MG TABLET'
+    Matched master record       : 'EMCLOZ\xa00.25MG TABLET'  [424441289]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 344: 'EMCOLZ 0.5 MG TAB 1X10'
+    Training 'Output Should be' : 'EMCLOZ 0.5MG TABLET'
+    Matched master record       : 'EMCLOZ\xa00.5MG TABLET'  [424441290]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 534: 'VONADAY 1X30B PCS'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 732: 'VONADAY TABS 1X30'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 735: 'VONADAY TABS 1X30'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 853: 'MESALACURE TABLET 1.2GM NEW MRP Pcs.'
+    Training 'Output Should be' : 'MESALACURE TABLET  1.2GM'
+    Matched master record       : 'MESALACURE TABLET\xa0 1.2GM'  [424440981]
+    Note                        : normalised match (non-breaking space, double-space)
+
+  Excel row 854: 'VONADAY 600/300/30 30TAB'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 1027: 'EMCOLZ 0.25 MG TAB 1X10'
+    Training 'Output Should be' : 'EMCLOZ 0.25MG TABLET'
+    Matched master record       : 'EMCLOZ\xa00.25MG TABLET'  [424441289]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 1028: 'EMCOLZ 0.5 MG TAB 1X10'
+    Training 'Output Should be' : 'EMCLOZ 0.5MG TABLET'
+    Matched master record       : 'EMCLOZ\xa00.5MG TABLET'  [424441290]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 1218: 'VONADAY 1X30B PCS'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 1416: 'VONADAY TABS 1X30'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+  Excel row 1419: 'VONADAY TABS 1X30'
+    Training 'Output Should be' : 'VONADAY 600/300/300 MG TABLET 30s'
+    Matched master record       : 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+    Note                        : normalised match (non-breaking space)
+
+
+  NOT_FOUND (4 rows) — REQUIRES MANUAL REVIEW:
+
+  Positive: 'GRAFTSOL UW SOLUTION 1000ML'
+    Appears in Excel rows : 176, 860
+    OCR inputs            : 'GRAFTSOL 1000ML UW 1', 'GRAFTSOL 1000ML UW 1'
+    Status                : NOT FOUND in PRODUCT_MASTER (no exact or normalised match)
+
+  Positive: 'TRELAGLIP 25 MG TABLET'
+    Appears in Excel rows : 675, 1359
+    OCR inputs            : 'TRELAGLIP 25MG.TABS 2X2TAB', 'TRELAGLIP 25MG.TABS 2X2TAB'
+    Status                : NOT FOUND in PRODUCT_MASTER (no exact or normalised match)
+
+────────────────────────────────────────────────────────────────────────
+END OF REPORT
+────────────────────────────────────────────────────────────────────────

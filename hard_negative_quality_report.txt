@@ -1,0 +1,780 @@
+========================================================================
+  HARD NEGATIVE QUALITY REPORT
+========================================================================
+
+  Source : f:\Vintyaa\projects\Product Name Automation\hard_negative_mining.csv
+  Rows   : 1425
+
+────────────────────────────────────────────────────────────────────────
+1. SIMILARITY STATISTICS
+────────────────────────────────────────────────────────────────────────
+
+  All mined negatives combined (slots 1+2+3):
+  All slots:  n=4275  min=0.6413  max=0.9605  mean=0.8116  median=0.8117
+
+  Per-slot breakdown:
+  Slot 1 (highest-ranked):  n=1425  min=0.6730  max=0.9605  mean=0.8270  median=0.8257
+
+  Slot 2:  n=1425  min=0.6685  max=0.9569  mean=0.8096  median=0.8092
+
+  Slot 3 (lowest-ranked):  n=1425  min=0.6413  max=0.9424  mean=0.7983  median=0.7998
+
+────────────────────────────────────────────────────────────────────────
+2. BRAND-MATCH STATISTICS
+────────────────────────────────────────────────────────────────────────
+
+  Rows where Mined-1 has same brand as positive : 1061 / 1425  (74.5%)
+  Rows where Mined-2 has same brand as positive : 953 / 1425  (66.9%)
+  Rows where Mined-3 has same brand as positive : 859 / 1425  (60.3%)
+  Rows where ALL 3 mined negs share brand       : 762 / 1425  (53.5%)
+
+────────────────────────────────────────────────────────────────────────
+3. POSITIVE IN TOP-6 RETRIEVAL
+────────────────────────────────────────────────────────────────────────
+
+  Positive WAS     in Top-6 : 0  (0.0%)
+  Positive was NOT in Top-6 : 1425  (100.0%)
+
+────────────────────────────────────────────────────────────────────────
+4. TOP-20 ROWS BY HIGHEST MINED-NEGATIVE SIMILARITY
+────────────────────────────────────────────────────────────────────────
+   (rows where mined negatives are most similar to the OCR query -- hardest)
+
+  [01]  max_score=0.9605
+  Excel row 326
+  Input   : 'EMPRI 25MG TABLET 10X10T 10*10T'
+  Positive: 'EMPRI L 25/5MG TABLET 10x10T'  [421113070]  [brand: EMPRI]
+  Explicit: 'EMPRI 25MG TABLET 10x10T'  [421113068]
+  Mined 1 : 'EMPRI 10MG TABLET 10x10T'  [421113067]  score=0.9605  [same brand]
+  Mined 2 : 'EMPRI L 10/5MG TABLET 10x10T'  [421113069]  score=0.9569  [same brand]
+  Mined 3 : 'EMPRI M 12.5/1000MG TABLET 10x10T'  [421113072]  score=0.9424  [same brand]
+
+  [02]  max_score=0.9605
+  Excel row 1010
+  Input   : 'EMPRI 25MG TABLET 10X10T 10*10T'
+  Positive: 'EMPRI L 25/5MG TABLET 10x10T'  [421113070]  [brand: EMPRI]
+  Explicit: 'EMPRI 25MG TABLET 10x10T'  [421113068]
+  Mined 1 : 'EMPRI 10MG TABLET 10x10T'  [421113067]  score=0.9605  [same brand]
+  Mined 2 : 'EMPRI L 10/5MG TABLET 10x10T'  [421113069]  score=0.9569  [same brand]
+  Mined 3 : 'EMPRI M 12.5/1000MG TABLET 10x10T'  [421113072]  score=0.9424  [same brand]
+
+  [03]  max_score=0.9580
+  Excel row 420
+  Input   : 'TAPIC EM 4.5 GM INJECTION'
+  Positive: 'TAPICEM 4.5 GM INJECTION'  [421112178]  [brand: TAPIC EM]
+  Explicit: 'TAPIC EM 1.125 GM INJECTION'  [421111530]
+  Mined 1 : 'TAPIC INJECTION 4.5 gm'  [420000604]  score=0.9580
+  Mined 2 : 'TAPIC 2.25 GM INJECTION'  [420000808]  score=0.8917
+  Mined 3 : 'TAZOTUM 4.5 GM INJECTION'  [423331199]  score=0.8399
+
+  [04]  max_score=0.9580
+  Excel row 1104
+  Input   : 'TAPIC EM 4.5 GM INJECTION'
+  Positive: 'TAPICEM 4.5 GM INJECTION'  [421112178]  [brand: TAPIC EM]
+  Explicit: 'TAPIC EM 1.125 GM INJECTION'  [421111530]
+  Mined 1 : 'TAPIC INJECTION 4.5 gm'  [420000604]  score=0.9580
+  Mined 2 : 'TAPIC 2.25 GM INJECTION'  [420000808]  score=0.8917
+  Mined 3 : 'TAZOTUM 4.5 GM INJECTION'  [423331199]  score=0.8399
+
+  [05]  max_score=0.9579
+  Excel row 178
+  Input   : 'TEMSAN 80 MG TABLETS10X15T-15 T'
+  Positive: 'TEMSAN 80 MG TABLETS 10x15T'  [424441700]  [brand: TEMSAN]
+  Explicit: 'TEMSAN 80 MG. TABLETS'  [424440934]
+  Mined 1 : 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  score=0.9579  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9468  [same brand]
+  Mined 3 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9394  [same brand]
+
+  [06]  max_score=0.9579
+  Excel row 862
+  Input   : 'TEMSAN 80 MG TABLETS10X15T-15 T'
+  Positive: 'TEMSAN 80 MG TABLETS 10x15T'  [424441700]  [brand: TEMSAN]
+  Explicit: 'TEMSAN 80 MG. TABLETS'  [424440934]
+  Mined 1 : 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  score=0.9579  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9468  [same brand]
+  Mined 3 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9394  [same brand]
+
+  [07]  max_score=0.9534
+  Excel row 225
+  Input   : 'TEMSAN -80 H TABLET 10X15'
+  Positive: 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  [brand: TEMSAN]
+  Explicit: 'TEMSAN  80 H TABLETS'  [424440636]
+  Mined 1 : 'TEMSAN LN TABLET 10x15T'  [421112933]  score=0.9534  [same brand]
+  Mined 2 : 'TEMSAN BS 5/40 TABLET 10x10T'  [421112703]  score=0.9302  [same brand]
+  Mined 3 : 'TEMSAN BS 2.5/40 TABLET 10x10T'  [421112702]  score=0.9294  [same brand]
+
+  [08]  max_score=0.9534
+  Excel row 909
+  Input   : 'TEMSAN -80 H TABLET 10X15'
+  Positive: 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  [brand: TEMSAN]
+  Explicit: 'TEMSAN  80 H TABLETS'  [424440636]
+  Mined 1 : 'TEMSAN LN TABLET 10x15T'  [421112933]  score=0.9534  [same brand]
+  Mined 2 : 'TEMSAN BS 5/40 TABLET 10x10T'  [421112703]  score=0.9302  [same brand]
+  Mined 3 : 'TEMSAN BS 2.5/40 TABLET 10x10T'  [421112702]  score=0.9294  [same brand]
+
+  [09]  max_score=0.9510
+  Excel row 634
+  Input   : 'EMLINZ-M 5/1000 TAB 10X10'
+  Positive: 'EMLINZ M 1000 TABLET 1x10T'  [421112772]  [brand: EMLINZ]
+  Explicit: 'EMLINZ M5/1000 TABLET 10x10T'  [421112828]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.9510  [same brand]
+  Mined 2 : 'EMLINZ DM TABLET 10x10T'  [421112935]  score=0.8855  [same brand]
+  Mined 3 : 'EMLINZ D 5/10 TABLET 1x10T'  [421112771]  score=0.8803  [same brand]
+
+  [10]  max_score=0.9510
+  Excel row 1318
+  Input   : 'EMLINZ-M 5/1000 TAB 10X10'
+  Positive: 'EMLINZ M 1000 TABLET 1x10T'  [421112772]  [brand: EMLINZ]
+  Explicit: 'EMLINZ M5/1000 TABLET 10x10T'  [421112828]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.9510  [same brand]
+  Mined 2 : 'EMLINZ DM TABLET 10x10T'  [421112935]  score=0.8855  [same brand]
+  Mined 3 : 'EMLINZ D 5/10 TABLET 1x10T'  [421112771]  score=0.8803  [same brand]
+
+  [11]  max_score=0.9476
+  Excel row 424
+  Input   : 'OROFER XT TABLET 5X15T'
+  Positive: 'OROFER XT TABLET 1x15T'  [424442006]  [brand: OROFER]
+  Explicit: 'OROFER XT TABLET'  [424441704]
+  Mined 1 : 'OROFER XT TABLET 1X30 T'  [424441705]  score=0.9476  [same brand]
+  Mined 2 : 'FERIUM XT TABLET 10x15T'  [424441955]  score=0.8954
+  Mined 3 : 'DAPAGZA 5 TABLET 1X15T'  [421112560]  score=0.8863
+
+  [12]  max_score=0.9476
+  Excel row 1108
+  Input   : 'OROFER XT TABLET 5X15T'
+  Positive: 'OROFER XT TABLET 1x15T'  [424442006]  [brand: OROFER]
+  Explicit: 'OROFER XT TABLET'  [424441704]
+  Mined 1 : 'OROFER XT TABLET 1X30 T'  [424441705]  score=0.9476  [same brand]
+  Mined 2 : 'FERIUM XT TABLET 10x15T'  [424441955]  score=0.8954
+  Mined 3 : 'DAPAGZA 5 TABLET 1X15T'  [421112560]  score=0.8863
+
+  [13]  max_score=0.9443
+  Excel row 213
+  Input   : 'ASOMEX 2.5 MG TABLET 1X15I PCS'
+  Positive: 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 2.5 MG TABLET'  [424440002]
+  Mined 1 : 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  score=0.9443  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1x30T'  [424440094]  score=0.9418  [same brand]
+  Mined 3 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9293  [same brand]
+
+  [14]  max_score=0.9443
+  Excel row 897
+  Input   : 'ASOMEX 2.5 MG TABLET 1X15I PCS'
+  Positive: 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 2.5 MG TABLET'  [424440002]
+  Mined 1 : 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  score=0.9443  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1x30T'  [424440094]  score=0.9418  [same brand]
+  Mined 3 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9293  [same brand]
+
+  [15]  max_score=0.9367
+  Excel row 705
+  Input   : 'POVIZTRA-1.75 MG FLXT 3 ML1 PC COPACK 1 PC'
+  Positive: 'POVIZTRA FLXT 1.7MG 3ML 1PC COPACK'  [420008828]  [brand: POVIZTRA]
+  Explicit: 'POVIZTRA FLXT 1MG 3ML 1PC COPACK'  [420008827]
+  Mined 1 : 'POVIZTRA FLXT 0.5MG 1.5ML 1PC COPACK'  [420008826]  score=0.9367  [same brand]
+  Mined 2 : 'POVIZTRA FLXT 0.25MG 1.5ML 1PC COPACK'  [420008825]  score=0.9366  [same brand]
+  Mined 3 : 'POVIZTRA FLXT 2.4MG 3ML 1PC COPACK'  [420008829]  score=0.9218  [same brand]
+
+  [16]  max_score=0.9367
+  Excel row 1389
+  Input   : 'POVIZTRA-1.75 MG FLXT 3 ML1 PC COPACK 1 PC'
+  Positive: 'POVIZTRA FLXT 1.7MG 3ML 1PC COPACK'  [420008828]  [brand: POVIZTRA]
+  Explicit: 'POVIZTRA FLXT 1MG 3ML 1PC COPACK'  [420008827]
+  Mined 1 : 'POVIZTRA FLXT 0.5MG 1.5ML 1PC COPACK'  [420008826]  score=0.9367  [same brand]
+  Mined 2 : 'POVIZTRA FLXT 0.25MG 1.5ML 1PC COPACK'  [420008825]  score=0.9366  [same brand]
+  Mined 3 : 'POVIZTRA FLXT 2.4MG 3ML 1PC COPACK'  [420008829]  score=0.9218  [same brand]
+
+  [17]  max_score=0.9364
+  Excel row 590
+  Input   : 'GALACT GRANULES(400'
+  Positive: 'GALACT GRANULES 400GM ELAICHI'  [421113094]  [brand: GALACT]
+  Explicit: 'GALACT GRANULES 400 GM CHOCOLATE'  [421112876]
+  Mined 1 : 'GALACT GRANULES'  [420000615]  score=0.9364  [same brand]
+  Mined 2 : 'GALACT GRANULES 400 GM KESAR'  [421112875]  score=0.8979  [same brand]
+  Mined 3 : 'GALACT GRANULES 600GM ELAICHI'  [421113037]  score=0.8736  [same brand]
+
+  [18]  max_score=0.9364
+  Excel row 1274
+  Input   : 'GALACT GRANULES(400'
+  Positive: 'GALACT GRANULES 400GM ELAICHI'  [421113094]  [brand: GALACT]
+  Explicit: 'GALACT GRANULES 400 GM CHOCOLATE'  [421112876]
+  Mined 1 : 'GALACT GRANULES'  [420000615]  score=0.9364  [same brand]
+  Mined 2 : 'GALACT GRANULES 400 GM KESAR'  [421112875]  score=0.8979  [same brand]
+  Mined 3 : 'GALACT GRANULES 600GM ELAICHI'  [421113037]  score=0.8736  [same brand]
+
+  [19]  max_score=0.9334
+  Excel row 613
+  Input   : 'ASOMEX LT 2.5MG TAB 1X15TA'
+  Positive: 'ASOMEX LT TABLET 1X15T'  [424440761]  [brand: ASOMEX]
+  Explicit: 'ASOMEX LT 2.5 MG TABLET'  [424440489]
+  Mined 1 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9334  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  score=0.9288  [same brand]
+  Mined 3 : 'ASOMEX AT 5 MG TABLET 1X15T'  [424441922]  score=0.9126  [same brand]
+
+  [20]  max_score=0.9334
+  Excel row 1297
+  Input   : 'ASOMEX LT 2.5MG TAB 1X15TA'
+  Positive: 'ASOMEX LT TABLET 1X15T'  [424440761]  [brand: ASOMEX]
+  Explicit: 'ASOMEX LT 2.5 MG TABLET'  [424440489]
+  Mined 1 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9334  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  score=0.9288  [same brand]
+  Mined 3 : 'ASOMEX AT 5 MG TABLET 1X15T'  [424441922]  score=0.9126  [same brand]
+
+────────────────────────────────────────────────────────────────────────
+5. TOP-20 HARD NEAR-MATCH ROWS
+────────────────────────────────────────────────────────────────────────
+   (high similarity AND mined negs share brand with positive)
+
+  [01]  max_score=0.9605  same-brand slots=3/3
+  Excel row 326
+  Input   : 'EMPRI 25MG TABLET 10X10T 10*10T'
+  Positive: 'EMPRI L 25/5MG TABLET 10x10T'  [421113070]  [brand: EMPRI]
+  Explicit: 'EMPRI 25MG TABLET 10x10T'  [421113068]
+  Mined 1 : 'EMPRI 10MG TABLET 10x10T'  [421113067]  score=0.9605  [same brand]
+  Mined 2 : 'EMPRI L 10/5MG TABLET 10x10T'  [421113069]  score=0.9569  [same brand]
+  Mined 3 : 'EMPRI M 12.5/1000MG TABLET 10x10T'  [421113072]  score=0.9424  [same brand]
+
+  [02]  max_score=0.9605  same-brand slots=3/3
+  Excel row 1010
+  Input   : 'EMPRI 25MG TABLET 10X10T 10*10T'
+  Positive: 'EMPRI L 25/5MG TABLET 10x10T'  [421113070]  [brand: EMPRI]
+  Explicit: 'EMPRI 25MG TABLET 10x10T'  [421113068]
+  Mined 1 : 'EMPRI 10MG TABLET 10x10T'  [421113067]  score=0.9605  [same brand]
+  Mined 2 : 'EMPRI L 10/5MG TABLET 10x10T'  [421113069]  score=0.9569  [same brand]
+  Mined 3 : 'EMPRI M 12.5/1000MG TABLET 10x10T'  [421113072]  score=0.9424  [same brand]
+
+  [03]  max_score=0.9579  same-brand slots=3/3
+  Excel row 178
+  Input   : 'TEMSAN 80 MG TABLETS10X15T-15 T'
+  Positive: 'TEMSAN 80 MG TABLETS 10x15T'  [424441700]  [brand: TEMSAN]
+  Explicit: 'TEMSAN 80 MG. TABLETS'  [424440934]
+  Mined 1 : 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  score=0.9579  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9468  [same brand]
+  Mined 3 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9394  [same brand]
+
+  [04]  max_score=0.9579  same-brand slots=3/3
+  Excel row 862
+  Input   : 'TEMSAN 80 MG TABLETS10X15T-15 T'
+  Positive: 'TEMSAN 80 MG TABLETS 10x15T'  [424441700]  [brand: TEMSAN]
+  Explicit: 'TEMSAN 80 MG. TABLETS'  [424440934]
+  Mined 1 : 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  score=0.9579  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9468  [same brand]
+  Mined 3 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9394  [same brand]
+
+  [05]  max_score=0.9534  same-brand slots=3/3
+  Excel row 225
+  Input   : 'TEMSAN -80 H TABLET 10X15'
+  Positive: 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  [brand: TEMSAN]
+  Explicit: 'TEMSAN  80 H TABLETS'  [424440636]
+  Mined 1 : 'TEMSAN LN TABLET 10x15T'  [421112933]  score=0.9534  [same brand]
+  Mined 2 : 'TEMSAN BS 5/40 TABLET 10x10T'  [421112703]  score=0.9302  [same brand]
+  Mined 3 : 'TEMSAN BS 2.5/40 TABLET 10x10T'  [421112702]  score=0.9294  [same brand]
+
+  [06]  max_score=0.9534  same-brand slots=3/3
+  Excel row 909
+  Input   : 'TEMSAN -80 H TABLET 10X15'
+  Positive: 'TEMSAN 80 H TABLETS 1X15T'  [424441192]  [brand: TEMSAN]
+  Explicit: 'TEMSAN  80 H TABLETS'  [424440636]
+  Mined 1 : 'TEMSAN LN TABLET 10x15T'  [421112933]  score=0.9534  [same brand]
+  Mined 2 : 'TEMSAN BS 5/40 TABLET 10x10T'  [421112703]  score=0.9302  [same brand]
+  Mined 3 : 'TEMSAN BS 2.5/40 TABLET 10x10T'  [421112702]  score=0.9294  [same brand]
+
+  [07]  max_score=0.9510  same-brand slots=3/3
+  Excel row 634
+  Input   : 'EMLINZ-M 5/1000 TAB 10X10'
+  Positive: 'EMLINZ M 1000 TABLET 1x10T'  [421112772]  [brand: EMLINZ]
+  Explicit: 'EMLINZ M5/1000 TABLET 10x10T'  [421112828]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.9510  [same brand]
+  Mined 2 : 'EMLINZ DM TABLET 10x10T'  [421112935]  score=0.8855  [same brand]
+  Mined 3 : 'EMLINZ D 5/10 TABLET 1x10T'  [421112771]  score=0.8803  [same brand]
+
+  [08]  max_score=0.9510  same-brand slots=3/3
+  Excel row 1318
+  Input   : 'EMLINZ-M 5/1000 TAB 10X10'
+  Positive: 'EMLINZ M 1000 TABLET 1x10T'  [421112772]  [brand: EMLINZ]
+  Explicit: 'EMLINZ M5/1000 TABLET 10x10T'  [421112828]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.9510  [same brand]
+  Mined 2 : 'EMLINZ DM TABLET 10x10T'  [421112935]  score=0.8855  [same brand]
+  Mined 3 : 'EMLINZ D 5/10 TABLET 1x10T'  [421112771]  score=0.8803  [same brand]
+
+  [09]  max_score=0.9443  same-brand slots=3/3
+  Excel row 213
+  Input   : 'ASOMEX 2.5 MG TABLET 1X15I PCS'
+  Positive: 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 2.5 MG TABLET'  [424440002]
+  Mined 1 : 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  score=0.9443  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1x30T'  [424440094]  score=0.9418  [same brand]
+  Mined 3 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9293  [same brand]
+
+  [10]  max_score=0.9443  same-brand slots=3/3
+  Excel row 897
+  Input   : 'ASOMEX 2.5 MG TABLET 1X15I PCS'
+  Positive: 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 2.5 MG TABLET'  [424440002]
+  Mined 1 : 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  score=0.9443  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1x30T'  [424440094]  score=0.9418  [same brand]
+  Mined 3 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9293  [same brand]
+
+  [11]  max_score=0.9367  same-brand slots=3/3
+  Excel row 705
+  Input   : 'POVIZTRA-1.75 MG FLXT 3 ML1 PC COPACK 1 PC'
+  Positive: 'POVIZTRA FLXT 1.7MG 3ML 1PC COPACK'  [420008828]  [brand: POVIZTRA]
+  Explicit: 'POVIZTRA FLXT 1MG 3ML 1PC COPACK'  [420008827]
+  Mined 1 : 'POVIZTRA FLXT 0.5MG 1.5ML 1PC COPACK'  [420008826]  score=0.9367  [same brand]
+  Mined 2 : 'POVIZTRA FLXT 0.25MG 1.5ML 1PC COPACK'  [420008825]  score=0.9366  [same brand]
+  Mined 3 : 'POVIZTRA FLXT 2.4MG 3ML 1PC COPACK'  [420008829]  score=0.9218  [same brand]
+
+  [12]  max_score=0.9367  same-brand slots=3/3
+  Excel row 1389
+  Input   : 'POVIZTRA-1.75 MG FLXT 3 ML1 PC COPACK 1 PC'
+  Positive: 'POVIZTRA FLXT 1.7MG 3ML 1PC COPACK'  [420008828]  [brand: POVIZTRA]
+  Explicit: 'POVIZTRA FLXT 1MG 3ML 1PC COPACK'  [420008827]
+  Mined 1 : 'POVIZTRA FLXT 0.5MG 1.5ML 1PC COPACK'  [420008826]  score=0.9367  [same brand]
+  Mined 2 : 'POVIZTRA FLXT 0.25MG 1.5ML 1PC COPACK'  [420008825]  score=0.9366  [same brand]
+  Mined 3 : 'POVIZTRA FLXT 2.4MG 3ML 1PC COPACK'  [420008829]  score=0.9218  [same brand]
+
+  [13]  max_score=0.9364  same-brand slots=3/3
+  Excel row 590
+  Input   : 'GALACT GRANULES(400'
+  Positive: 'GALACT GRANULES 400GM ELAICHI'  [421113094]  [brand: GALACT]
+  Explicit: 'GALACT GRANULES 400 GM CHOCOLATE'  [421112876]
+  Mined 1 : 'GALACT GRANULES'  [420000615]  score=0.9364  [same brand]
+  Mined 2 : 'GALACT GRANULES 400 GM KESAR'  [421112875]  score=0.8979  [same brand]
+  Mined 3 : 'GALACT GRANULES 600GM ELAICHI'  [421113037]  score=0.8736  [same brand]
+
+  [14]  max_score=0.9364  same-brand slots=3/3
+  Excel row 1274
+  Input   : 'GALACT GRANULES(400'
+  Positive: 'GALACT GRANULES 400GM ELAICHI'  [421113094]  [brand: GALACT]
+  Explicit: 'GALACT GRANULES 400 GM CHOCOLATE'  [421112876]
+  Mined 1 : 'GALACT GRANULES'  [420000615]  score=0.9364  [same brand]
+  Mined 2 : 'GALACT GRANULES 400 GM KESAR'  [421112875]  score=0.8979  [same brand]
+  Mined 3 : 'GALACT GRANULES 600GM ELAICHI'  [421113037]  score=0.8736  [same brand]
+
+  [15]  max_score=0.9334  same-brand slots=3/3
+  Excel row 613
+  Input   : 'ASOMEX LT 2.5MG TAB 1X15TA'
+  Positive: 'ASOMEX LT TABLET 1X15T'  [424440761]  [brand: ASOMEX]
+  Explicit: 'ASOMEX LT 2.5 MG TABLET'  [424440489]
+  Mined 1 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9334  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  score=0.9288  [same brand]
+  Mined 3 : 'ASOMEX AT 5 MG TABLET 1X15T'  [424441922]  score=0.9126  [same brand]
+
+  [16]  max_score=0.9334  same-brand slots=3/3
+  Excel row 1297
+  Input   : 'ASOMEX LT 2.5MG TAB 1X15TA'
+  Positive: 'ASOMEX LT TABLET 1X15T'  [424440761]  [brand: ASOMEX]
+  Explicit: 'ASOMEX LT 2.5 MG TABLET'  [424440489]
+  Mined 1 : 'ASOMEX AT 2.5 MG TABLET 1X15T'  [424441921]  score=0.9334  [same brand]
+  Mined 2 : 'ASOMEX 2.5 MG TABLET 1X15T'  [424441736]  score=0.9288  [same brand]
+  Mined 3 : 'ASOMEX AT 5 MG TABLET 1X15T'  [424441922]  score=0.9126  [same brand]
+
+  [17]  max_score=0.9287  same-brand slots=3/3
+  Excel row 286
+  Input   : 'TEMSAN H 40MG 10X15'
+  Positive: 'TEMSAN H TABLETS 1X15 T'  [424441191]  [brand: TEMSAN]
+  Explicit: 'TEMSAN H TABLETS'  [424440638]
+  Mined 1 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9287  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9000  [same brand]
+  Mined 3 : 'TEMSAN CT 40/12.5 MG TABLET 10X10'  [424441139]  score=0.8990  [same brand]
+
+  [18]  max_score=0.9287  same-brand slots=3/3
+  Excel row 970
+  Input   : 'TEMSAN H 40MG 10X15'
+  Positive: 'TEMSAN H TABLETS 1X15 T'  [424441191]  [brand: TEMSAN]
+  Explicit: 'TEMSAN H TABLETS'  [424440638]
+  Mined 1 : 'TEMSAN 40 MG TABLETS 10x15T'  [424441699]  score=0.9287  [same brand]
+  Mined 2 : 'TEMSAN 20 MG TABLETS 10x15T'  [424441698]  score=0.9000  [same brand]
+  Mined 3 : 'TEMSAN CT 40/12.5 MG TABLET 10X10'  [424441139]  score=0.8990  [same brand]
+
+  [19]  max_score=0.9281  same-brand slots=2/3
+  Excel row 431
+  Input   : 'ASOMEX 5MG TAB 10S 10X15"'
+  Positive: 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 5 MG TABLET'  [424440003]
+  Mined 1 : 'ASOMEX - M 5 TABLETS 10X10 T'  [424441466]  score=0.9281  [same brand]
+  Mined 2 : 'ASOMEX - M  TABLETS 10X10 T'  [424441465]  score=0.9121  [same brand]
+  Mined 3 : 'ENCURE 0.5 MG TABLET  10X10'  [424441408]  score=0.8885
+
+  [20]  max_score=0.9281  same-brand slots=2/3
+  Excel row 1115
+  Input   : 'ASOMEX 5MG TAB 10S 10X15"'
+  Positive: 'ASOMEX 5 MG TABLET 1x15T'  [424441737]  [brand: ASOMEX]
+  Explicit: 'ASOMEX 5 MG TABLET'  [424440003]
+  Mined 1 : 'ASOMEX - M 5 TABLETS 10X10 T'  [424441466]  score=0.9281  [same brand]
+  Mined 2 : 'ASOMEX - M  TABLETS 10X10 T'  [424441465]  score=0.9121  [same brand]
+  Mined 3 : 'ENCURE 0.5 MG TABLET  10X10'  [424441408]  score=0.8885
+
+────────────────────────────────────────────────────────────────────────
+6. TOP-20 ROWS WITH WEAKEST / MOST UNRELATED MINED NEGATIVES
+────────────────────────────────────────────────────────────────────────
+   (lowest max mined-negative similarity score)
+
+  [01]  max_score=0.6730  same-brand slots=1/3
+  Excel row 654
+  Input   : 'OSTERI INJ NEEDALES'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  score=0.6730  [same brand]
+  Mined 2 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6702
+  Mined 3 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6671
+
+  [02]  max_score=0.6730  same-brand slots=1/3
+  Excel row 1338
+  Input   : 'OSTERI INJ NEEDALES'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  score=0.6730  [same brand]
+  Mined 2 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6702
+  Mined 3 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6671
+
+  [03]  max_score=0.6798  same-brand slots=0/3
+  Excel row 39
+  Input   : 'VONADAY TAB NET RATE 1X30'
+  Positive: 'VONADAY 600/300/300 MG TABLET 30s'  []
+  Explicit: 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.6798
+  Mined 2 : 'RIVOFONET TABLETS 1X30 T'  [424440879]  score=0.6730
+  Mined 3 : 'VONARIL SYRUP 1X30 ML'  [421111791]  score=0.6706
+
+  [04]  max_score=0.6799  same-brand slots=3/3
+  Excel row 689
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [05]  max_score=0.6799  same-brand slots=3/3
+  Excel row 690
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [06]  max_score=0.6799  same-brand slots=3/3
+  Excel row 1373
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [07]  max_score=0.6799  same-brand slots=3/3
+  Excel row 1374
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [08]  max_score=0.6870  same-brand slots=0/3
+  Excel row 427
+  Input   : 'CONSIUM 100 INJ UNSURE'
+  Positive: 'CONSIUM 100(CARMUSTINE FOR INJ.)'  [490310001]
+  Explicit: 'DILUENT FOR CONSIUM 100 INJ'  [421112759]
+  Mined 1 : 'BIMODE 100 MG INJ 1 VIAL'  [421112202]  score=0.6870
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6853
+  Mined 3 : 'GROS 100 MG INJ 1 VIAL'  [422220282]  score=0.6850
+
+  [09]  max_score=0.6870  same-brand slots=0/3
+  Excel row 1111
+  Input   : 'CONSIUM 100 INJ UNSURE'
+  Positive: 'CONSIUM 100(CARMUSTINE FOR INJ.)'  [490310001]
+  Explicit: 'DILUENT FOR CONSIUM 100 INJ'  [421112759]
+  Mined 1 : 'BIMODE 100 MG INJ 1 VIAL'  [421112202]  score=0.6870
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6853
+  Mined 3 : 'GROS 100 MG INJ 1 VIAL'  [422220282]  score=0.6850
+
+  [10]  max_score=0.6931  same-brand slots=0/3
+  Excel row 574
+  Input   : 'OSTERI INJ NEEDDLES 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.6931
+  Mined 2 : 'NORMET R 30 SACHET'  [420000793]  score=0.6904
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6721
+
+  [11]  max_score=0.6931  same-brand slots=0/3
+  Excel row 1258
+  Input   : 'OSTERI INJ NEEDDLES 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.6931
+  Mined 2 : 'NORMET R 30 SACHET'  [420000793]  score=0.6904
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6721
+
+  [12]  max_score=0.6982  same-brand slots=0/3
+  Excel row 670
+  Input   : 'OSTERI INJ 1UNIT(OSTI) 1UNIT'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6982
+  Mined 2 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6933
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6895
+
+  [13]  max_score=0.6982  same-brand slots=0/3
+  Excel row 1354
+  Input   : 'OSTERI INJ 1UNIT(OSTI) 1UNIT'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6982
+  Mined 2 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6933
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6895
+
+  [14]  max_score=0.6999  same-brand slots=3/3
+  Excel row 361
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [15]  max_score=0.6999  same-brand slots=3/3
+  Excel row 362
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [16]  max_score=0.6999  same-brand slots=3/3
+  Excel row 1045
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [17]  max_score=0.6999  same-brand slots=3/3
+  Excel row 1046
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [18]  max_score=0.7030  same-brand slots=0/3
+  Excel row 359
+  Input   : 'OSTERI INJ 600MCG/2. VAIL'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'LIF-TAZ FORTE INJ. 1.125 GM'  [421110090]  score=0.7030
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6841
+  Mined 3 : 'XGRAST  INJ 300 MCG/0.5 ML PFS'  [422220290]  score=0.6795
+
+  [19]  max_score=0.7030  same-brand slots=0/3
+  Excel row 1043
+  Input   : 'OSTERI INJ 600MCG/2. VAIL'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'LIF-TAZ FORTE INJ. 1.125 GM'  [421110090]  score=0.7030
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6841
+  Mined 3 : 'XGRAST  INJ 300 MCG/0.5 ML PFS'  [422220290]  score=0.6795
+
+  [20]  max_score=0.7045  same-brand slots=0/3
+  Excel row 617
+  Input   : 'NEEDLE FOR OSTERI INJ 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.7045
+  Mined 2 : 'LANCURE I.V. 1X300 ML'  [421110934]  score=0.6797
+  Mined 3 : 'LANCURE SUSPENSION 30 ML'  [421111071]  score=0.6769
+
+────────────────────────────────────────────────────────────────────────
+7. ROWS WHERE POSITIVE WAS NOT IN TOP-6  (total: 1425)
+────────────────────────────────────────────────────────────────────────
+   (showing up to 20 with lowest mined-neg similarity -- retrieval missed the positive)
+
+  [01]  max_mined_score=0.6730
+  Excel row 654
+  Input   : 'OSTERI INJ NEEDALES'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  score=0.6730  [same brand]
+  Mined 2 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6702
+  Mined 3 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6671
+
+  [02]  max_mined_score=0.6730
+  Excel row 1338
+  Input   : 'OSTERI INJ NEEDALES'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  score=0.6730  [same brand]
+  Mined 2 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6702
+  Mined 3 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6671
+
+  [03]  max_mined_score=0.6798
+  Excel row 39
+  Input   : 'VONADAY TAB NET RATE 1X30'
+  Positive: 'VONADAY 600/300/300 MG TABLET 30s'  []  [brand: unknown]
+  Explicit: 'VONADAY 600/300/300 MG TABLET\xa030s'  [424440875]
+  Mined 1 : 'EMLINZ M 2.5/1000 TAB 1X10T'  [429991542]  score=0.6798
+  Mined 2 : 'RIVOFONET TABLETS 1X30 T'  [424440879]  score=0.6730
+  Mined 3 : 'VONARIL SYRUP 1X30 ML'  [421111791]  score=0.6706
+
+  [04]  max_mined_score=0.6799
+  Excel row 689
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]  [brand: FLAWLIZO]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [05]  max_mined_score=0.6799
+  Excel row 690
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]  [brand: FLAWLIZO]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [06]  max_mined_score=0.6799
+  Excel row 1373
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]  [brand: FLAWLIZO]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [07]  max_mined_score=0.6799
+  Excel row 1374
+  Input   : 'FLAWLIZO MIC .04 15GM'
+  Positive: 'FLAWLIZO MICRO 0.04% GEL 15GM TUBE PACK'  [421113049]  [brand: FLAWLIZO]
+  Explicit: 'FLAWLIZO MICRO 0.04% GEL 15GM PUMP PACK'  [421113085]
+  Mined 1 : 'FLAWLIZO MICRO 0.1% GEL 15GM TUBE PACK'  [421113050]  score=0.6799  [same brand]
+  Mined 2 : 'FLAWLIZO MICRO 0.1% GEL 15GM PUMP PACK'  [421113083]  score=0.6685  [same brand]
+  Mined 3 : 'FLAWLIZO 0.025% CREAM 20GM'  [421113048]  score=0.6413  [same brand]
+
+  [08]  max_mined_score=0.6870
+  Excel row 427
+  Input   : 'CONSIUM 100 INJ UNSURE'
+  Positive: 'CONSIUM 100(CARMUSTINE FOR INJ.)'  [490310001]  [brand: CONSIUM]
+  Explicit: 'DILUENT FOR CONSIUM 100 INJ'  [421112759]
+  Mined 1 : 'BIMODE 100 MG INJ 1 VIAL'  [421112202]  score=0.6870
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6853
+  Mined 3 : 'GROS 100 MG INJ 1 VIAL'  [422220282]  score=0.6850
+
+  [09]  max_mined_score=0.6870
+  Excel row 1111
+  Input   : 'CONSIUM 100 INJ UNSURE'
+  Positive: 'CONSIUM 100(CARMUSTINE FOR INJ.)'  [490310001]  [brand: CONSIUM]
+  Explicit: 'DILUENT FOR CONSIUM 100 INJ'  [421112759]
+  Mined 1 : 'BIMODE 100 MG INJ 1 VIAL'  [421112202]  score=0.6870
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6853
+  Mined 3 : 'GROS 100 MG INJ 1 VIAL'  [422220282]  score=0.6850
+
+  [10]  max_mined_score=0.6931
+  Excel row 574
+  Input   : 'OSTERI INJ NEEDDLES 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.6931
+  Mined 2 : 'NORMET R 30 SACHET'  [420000793]  score=0.6904
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6721
+
+  [11]  max_mined_score=0.6931
+  Excel row 1258
+  Input   : 'OSTERI INJ NEEDDLES 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.6931
+  Mined 2 : 'NORMET R 30 SACHET'  [420000793]  score=0.6904
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6721
+
+  [12]  max_mined_score=0.6982
+  Excel row 670
+  Input   : 'OSTERI INJ 1UNIT(OSTI) 1UNIT'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6982
+  Mined 2 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6933
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6895
+
+  [13]  max_mined_score=0.6982
+  Excel row 1354
+  Input   : 'OSTERI INJ 1UNIT(OSTI) 1UNIT'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'EPORISE 10 000 IU PFS'  [423330917]  score=0.6982
+  Mined 2 : 'EPORISE 40 000 IU PFS'  [423330850]  score=0.6933
+  Mined 3 : 'NEVIR ER TBALET 1 X 30'  [424441482]  score=0.6895
+
+  [14]  max_mined_score=0.6999
+  Excel row 361
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]  [brand: AMARYL]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [15]  max_mined_score=0.6999
+  Excel row 362
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]  [brand: AMARYL]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [16]  max_mined_score=0.6999
+  Excel row 1045
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]  [brand: AMARYL]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [17]  max_mined_score=0.6999
+  Excel row 1046
+  Input   : 'AMARYL M F 10'
+  Positive: 'AMARYL M FORTE 1MG TABLET 10x15T'  [421113132]  [brand: AMARYL]
+  Explicit: 'AMARYL M 1MG TABLET 8x20T'  [421113130]
+  Mined 1 : 'AMARYL 1MG TABLET 10x30T'  [421113127]  score=0.6999  [same brand]
+  Mined 2 : 'AMARYL MV 1MG TABLET 10x15T'  [421113134]  score=0.6999  [same brand]
+  Mined 3 : 'AMARYL MV 2MG TABLET 10x15T'  [421113135]  score=0.6931  [same brand]
+
+  [18]  max_mined_score=0.7030
+  Excel row 359
+  Input   : 'OSTERI INJ 600MCG/2. VAIL'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'LIF-TAZ FORTE INJ. 1.125 GM'  [421110090]  score=0.7030
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6841
+  Mined 3 : 'XGRAST  INJ 300 MCG/0.5 ML PFS'  [422220290]  score=0.6795
+
+  [19]  max_mined_score=0.7030
+  Excel row 1043
+  Input   : 'OSTERI INJ 600MCG/2. VAIL'
+  Positive: 'OSTERI INJ.600MCG /2.4MLPEN DEVICE'  [421112507]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'LIF-TAZ FORTE INJ. 1.125 GM'  [421110090]  score=0.7030
+  Mined 2 : 'TASPIANCE INJ 180 MCG/0.5ML PFS'  [491110378]  score=0.6841
+  Mined 3 : 'XGRAST  INJ 300 MCG/0.5 ML PFS'  [422220290]  score=0.6795
+
+  [20]  max_mined_score=0.7045
+  Excel row 617
+  Input   : 'NEEDLE FOR OSTERI INJ 30 S'
+  Positive: 'OSTERI INJECTION NEEDLES'  [421111705]  [brand: OSTERI]
+  Explicit: 'OSTERI INJECTION 750 MCG PFS'  [421111655]
+  Mined 1 : 'GROS 30 INJ 1 VIAL'  [422220280]  score=0.7045
+  Mined 2 : 'LANCURE I.V. 1X300 ML'  [421110934]  score=0.6797
+  Mined 3 : 'LANCURE SUSPENSION 30 ML'  [421111071]  score=0.6769
+
+────────────────────────────────────────────────────────────────────────
+END OF REPORT
+────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,62 @@
+# =============================================================================
+# .gitignore — Product Name Automation
+# =============================================================================
+
+# ── Python bytecode & cache ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+
+# ── Excel temporary / lock files (created while workbook is open) ─────────────
+~$*.xlsx
+~$*.xls
+~$*.csv
+
+# ── Fine-tuned / local ML model artifacts ────────────────────────────────────
+# Full model directories are large (hundreds of MB) and should not be committed.
+# Use model-sharing services (HuggingFace Hub, DVC, etc.) for model versioning.
+models/
+
+# ── Generated embedding matrices ─────────────────────────────────────────────
+# Ignore the .npy binary blobs but keep embedding metadata files
+# (e.g. master_embeddings_meta.json, master_record_index.json,
+#  finetuned_master_meta.csv) so they remain trackable.
+embeddings/*.npy
+
+# ── Backup files ─────────────────────────────────────────────────────────────
+*.bak
+
+# ── Environment / secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Claude Code session data ──────────────────────────────────────────────────
+# .claude/ contains credentials, session tokens, daemon state, and local
+# per-machine backups. None of this should be committed.
+# NOTE: this directory is already tracked; to stop tracking it run:
+#   git rm -r --cached .claude/
+.claude/
+
+# ── OS-generated files ────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+
+# ── Python virtual environments ───────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDE / editor metadata ─────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Generated runtime output files ───────────────────────────────────────────
+# outputtest.txt is a large (~981 KB) generated test-run artifact, not source.
+outputtest.txt
