@@ -1,0 +1,113 @@
+# V2 HARD-NEGATIVE MINING QUALITY REPORT
+
+Generated: 2026-09-22 12:33:27
+
+## SUMMARY
+
+- **Total positive pairs processed**: 10
+- **Total negatives generated**: 30
+- **Rows with 3 hard negatives**: 10 (100.0%)
+- **Rows with 1-2 hard negatives**: 0 (0.0%)
+- **Rows with 0 hard negatives**: 0 (0.0%)
+- **Positive appeared in top-10**: 10
+- **Validation errors**: 0
+- **Evaluation leakage**: 0
+
+## SIMILARITY SCORE DISTRIBUTION
+
+| Slot | Count | Min | Max | Mean | Median | Std |
+|------|-------|-----|-----|------|--------|-----|
+| 1 | 10 | 0.6599 | 0.9505 | 0.7908 | 0.7726 | 0.0972 |
+| 2 | 10 | 0.6244 | 0.9149 | 0.7485 | 0.7428 | 0.0821 |
+| 3 | 10 | 0.5702 | 0.9102 | 0.7146 | 0.7190 | 0.0911 |
+
+## SAME-BRAND PERCENTAGE
+
+- **Slot 1**: 10 / 10 = 100.0%
+- **Slot 2**: 8 / 10 = 80.0%
+- **Slot 3**: 7 / 10 = 70.0%
+
+## VALIDATION RESULTS
+
+✅ **All validation checks passed**
+
+## REPRESENTATIVE MINING EXAMPLES
+
+### Input: `EMANZEN 5 MG TAB 10 S`
+- **Positive**: EMANZEN TABLET 5 MG [424440086]
+- **Mined 1**: EMANZEN N CAPSULES 10 [420000468] score=0.7502
+- **Mined 2**: EMANZEN AP TABLET 10x10T [421113182] score=0.7398
+- **Mined 3**: EMANZEN FORTE TABLET 10 MG [424440087] score=0.7299
+
+### Input: `EMPROGEST 200 INJ 2ML`
+- **Positive**: EMPROGEST-200 INJECTION [491110253]
+- **Mined 1**: EMPROGEST-200 CAPSULE [421111441] score=0.7950
+- **Mined 2**: EMPROGEST EV 200 TABLET [421111435] score=0.7725
+- **Mined 3**: EMPROGEST SR 200 TABLET [421111437] score=0.7160
+
+### Input: `TEMSAN 80MG-15s`
+- **Positive**: TEMSAN 80 MG TABLETS 10x15T [424441700]
+- **Mined 1**: TEMSAN 80 H TABLETS 1X15T [424441192] score=0.8952
+- **Mined 2**: TEMSAN 80 MG. TABLETS [424440934] score=0.8353
+- **Mined 3**: TEMSAN  80 H TABLETS [424440636] score=0.8027
+
+### Input: `NUMLO-AT 1X15 10X15`
+- **Positive**: NUMLO-AT TABLET 1X15 T [424441936]
+- **Mined 1**: NUMLO-AT TABLET [424440015] score=0.8150
+- **Mined 2**: NUMLO-TM TABLETS 1X15 T [421112129] score=0.7354
+- **Mined 3**: NUMLO-D TABLET 1X15 T [424441202] score=0.7219
+
+### Input: `TWINAQT TABLETS 30T 30 TAB`
+- **Positive**: TWINAQT TABLETS 30 T [424441924]
+- **Mined 1**: TWINAQT TABLETS 90 T [424441580] score=0.6644
+- **Mined 2**: JUSTINEX 30 TABLETS [424440234] score=0.6342
+- **Mined 3**: TAVIN 300 MG TABLET 30s [424440878] score=0.6315
+
+### Input: `Vylda Dm 100/10/500 10ta`
+- **Positive**: VYLDA DM 100/10/500 TABLET 1x10T [421112888]
+- **Mined 1**: VYLDA DM 100/5/500 TABLET 1x10T [421112638] score=0.9505
+- **Mined 2**: VYLDA DM 100/5/1000 TABLET 1x10T [421112639] score=0.9149
+- **Mined 3**: VYLDA DM 100/10/1000 TABLET 1x10T [421112889] score=0.9102
+
+### Input: `PROXYM ER 200MG TAE 15S`
+- **Positive**: PROXYM ER 200 TABLETS 15 T [424441863]
+- **Mined 1**: PROXYM ER TABLET 1X15T [424441862] score=0.7501
+- **Mined 2**: PROXYM ER 200 TABLETS [424441015] score=0.7459
+- **Mined 3**: PROXYM ER  TABLETS [424441016] score=0.6464
+
+### Input: `OSTERI INJ.600MCG/2.4ML PCS`
+- **Positive**: OSTERI INJ.600MCG /2.4MLPEN DEVICE [421112507]
+- **Mined 1**: OSTERI INJECTION NEEDLES [421111705] score=0.6599
+- **Mined 2**: OSTERI INJECTION 750 MCG PFS [421111655] score=0.6244
+- **Mined 3**: VINTOR 6000 IU INJ 1 PFS [422220118] score=0.5702
+
+### Input: `TEMSAN LN TABS`
+- **Positive**: TEMSAN LN TABLET 10x15T [421112933]
+- **Mined 1**: TEMSAN LNC 12.5 TABLET 10x10T [421112983] score=0.7139
+- **Mined 2**: TEMSAN LNC 6.25 TABLET 10x10T [421112985] score=0.7043
+- **Mined 3**: TEMSAN CT TABLETS [421111094] score=0.6632
+
+### Input: `EMILDAP GM 10/1/1000 TAB 10TAB`
+- **Positive**: EMILDAP GM 10/1/1000 TABLET 10x10T [421112742]
+- **Mined 1**: EMILDAP GM 10/2/1000 TABLET 10x10T [421112743] score=0.9140
+- **Mined 2**: EMILDAP M10/1000 1X10T [421112571] score=0.7788
+- **Mined 3**: EMILDAP 10 TABLET 1X15T [421112857] score=0.7545
+
+## WEAKEST & STRONGEST NEGATIVES
+
+**Weakest (lowest similarity)**:
+- `OSTERI INJ.600MCG/2.4ML PCS` → **OSTERI INJ.600MCG /2.4MLPEN DEVICE** vs **OSTERI INJECTION NEEDLES** (score=0.6599)
+- `TWINAQT TABLETS 30T 30 TAB` → **TWINAQT TABLETS 30 T** vs **TWINAQT TABLETS 90 T** (score=0.6644)
+- `TEMSAN LN TABS` → **TEMSAN LN TABLET 10x15T** vs **TEMSAN LNC 12.5 TABLET 10x10T** (score=0.7139)
+- `PROXYM ER 200MG TAE 15S` → **PROXYM ER 200 TABLETS 15 T** vs **PROXYM ER TABLET 1X15T** (score=0.7501)
+- `EMANZEN 5 MG TAB 10 S` → **EMANZEN TABLET 5 MG** vs **EMANZEN N CAPSULES 10** (score=0.7502)
+
+**Strongest (highest similarity)**:
+- `EMPROGEST 200 INJ 2ML` → **EMPROGEST-200 INJECTION** vs **EMPROGEST-200 CAPSULE** (score=0.7950)
+- `NUMLO-AT 1X15 10X15` → **NUMLO-AT TABLET 1X15 T** vs **NUMLO-AT TABLET** (score=0.8150)
+- `TEMSAN 80MG-15s` → **TEMSAN 80 MG TABLETS 10x15T** vs **TEMSAN 80 H TABLETS 1X15T** (score=0.8952)
+- `EMILDAP GM 10/1/1000 TAB 10TAB` → **EMILDAP GM 10/1/1000 TABLET 10x10T** vs **EMILDAP GM 10/2/1000 TABLET 10x10T** (score=0.9140)
+- `Vylda Dm 100/10/500 10ta` → **VYLDA DM 100/10/500 TABLET 1x10T** vs **VYLDA DM 100/5/500 TABLET 1x10T** (score=0.9505)
+
+---
+*Total runtime: 132.8s*
