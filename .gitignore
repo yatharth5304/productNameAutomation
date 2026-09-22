@@ -38,6 +38,7 @@ embeddings/*.npy
 #   git rm -r --cached .claude/
 .claude/
 
+
 # ── OS-generated files ────────────────────────────────────────────────────────
 .DS_Store
 .DS_Store?
@@ -57,6 +58,44 @@ ENV/
 *.swo
 *~
 
-# ── Generated runtime output files ───────────────────────────────────────────
-# outputtest.txt is a large (~981 KB) generated test-run artifact, not source.
+# ── Large raw data files (do not commit) ──────────────────────────────────────
+testraw.xlsx
+testingg.xlsx
+
+# ── Generated intermediate datasets (do not commit) ───────────────────────────
+v2_*.csv
+v2_*.xlsx
+hard_negative_mining.csv
+hard_negative_validation.csv
+hard_negative_quality_analysis.csv
+finetuned_evaluation_results.csv
+baseline_evaluation_results.csv
+training_split.csv
+profile_results.txt
+
+# ── Generated reports (auto-generated, do not commit) ─────────────────────────
+*_REPORT.md
+*_ANALYSIS_REPORT.md
+PROFILING_REPORT.md
+V2_VALIDATION_REPORT.md
+V2_HARD_NEGATIVE_QUALITY_REPORT.md
+V2_CONSTRUCTION_REPORT.md
+GARBAGE_REVIEW_ANALYSIS.md
+STAGE2_ANALYSIS_REPORT.md
+
+# ── Large generated output files ──────────────────────────────────────────────
 outputtest.txt
+garbage_review_analysis.csv
+review_reclassification.csv
+MAPPING_MAIN_OUTPUT.xlsx
+PRODUCT_MASTER1.xlsx
+
+# ── Temporary Python scripts (analysis/debug, not production) ────────────────
+construct_v2*.py
+fix_eval_leakage.py
+validate_v2.py
+validate_final_v2.py
+reconstruct_v2*.py
+profile_*.py
+stage2_part*.py
+final_v2_report.py

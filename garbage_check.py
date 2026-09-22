@@ -10,7 +10,7 @@ API_KEY = "sk_dpI1XRuvqvfeLamnRTwKCnkikDY1dDe4aF2hTfv0aT8"
 NOVITA_URL = "https://api.novita.ai/openai/v1/chat/completions"
 MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
-EXCEL_FILE = "test2.xlsx"
+EXCEL_FILE = "testRaw.xlsx"
 BRANDS_FILE = "Brand Names.txt"
 
 BATCH_SIZE = 2    # rows per API call
@@ -307,6 +307,15 @@ EXACT_GARBAGE_ROWS = {
     "DISTRIBUTION CHAIN STORES",
     "DEFAULT",
     "All Marketing Groups",
+    # Bare Emcure division / company header names (without the EMCURE prefix)
+    # that are not in the master product list
+    "NUCRON CV",
+    "NUCRON DIVISION",
+    "NUCRON CV DIVISION",
+    "INVENTIA DIVISION",
+    "XENNEX DIVISION",
+    "PHARMA DIVISION",
+    "PHARMA NXT DIVISION",
 }
 
 SAFE_GARBAGE_PATTERNS = (
@@ -418,6 +427,41 @@ SAFE_GARBAGE_PATTERNS = (
     # Brand matching runs before this check, so 3-char brands (VIL, IKA, etc.) in the
     # master are already classified as 0 before reaching pattern garbage.
     re.compile(r"^[^A-Za-z0-9]*[A-Za-z0-9]{0,3}[^A-Za-z0-9]*$"),
+    # -----------------------------------------------------------------------
+    # Patterns added to eliminate the REVIEW fallback (local mode)
+    # Each rule was validated against PRODUCT_MASTER1.xlsx for zero collisions.
+    # -----------------------------------------------------------------------
+    # Variable financial aggregate rows with numeric content
+    # Matches: "Totals: 464937.00 --", "Totals 175972.00 287469.00 152052.00 427.49",
+    #          "Totals358414"
+    # Does NOT match: "TOTAL CAL D 3MG TAB" (letters after TOTAL are non-numeric)
+    re.compile(r"^Totals?\s*[\d:,+.\s\-]+$", re.IGNORECASE),
+    re.compile(r"^Totals?\s+[\d,]+(?:\.\d+)?", re.IGNORECASE),
+    # Matches: "Purchase 0.00 Purchase Return 0.00", "Purchase 5168.82 Purchase Return 0.00"
+    re.compile(r"^Purchase\s+[\d,]+(?:\.\d+)?\s+Purchase\s+Return", re.IGNORECASE),
+    # Matches: "Total Of EMC 1", "Total Of EMC 8 -"
+    re.compile(r"^Total\s+Of\s+\w", re.IGNORECASE),
+    # Matches: "Total cost of near expiry items 0.00", "Total G/R credit for above period"
+    re.compile(r"^Total\s+(cost\s+of|G/R)\s+", re.IGNORECASE),
+    # Matches: "Sale of period 50164.15 GST 2508.20 Cumulative..."
+    re.compile(r"^Sale\s+of\s+period\s+[\d.]", re.IGNORECASE),
+    # OCR sentinel / placeholder values: ZZZZZZ 5015, ZZZZZZ 4024, etc.
+    # These are report-generator fill values, never real product names.
+    re.compile(r"^Z{4,}\b", re.IGNORECASE),
+    # Bare Emcure division prefix rows: NUCRON, NUSURGE, INVENTIA, XENNEX, EMCUTIX
+    # with optional suffix tokens (CV, DIVISION, PHARMA, etc.) and optional date/noise.
+    # Verified against PRODUCT_MASTER1.xlsx: none of these prefixes are brand names.
+    # EMCOR is deliberately excluded — bare EMCOR may be an OCR artefact of a product
+    # label and is left as MAYBE_PRODUCT per project policy.
+    re.compile(
+        r"^(NUCRON|NUSURGE|INVENTIA|XENNEX|EMCUTIX)"
+        r"(\s+[\w/.,()\-]+)*\s*$",
+        re.IGNORECASE,
+    ),
+    # Drug house / supply chain entities not caught by the AGENCIES/DISTRIBUTORS pattern
+    re.compile(r"\bDRUG\s+HOUSE\b", re.IGNORECASE),
+    # Software feature advertisement rows (Marg ERP variant)
+    re.compile(r"^Digital\s+Purchase\s+ERP\b", re.IGNORECASE),
 )
 
 # Vocabulary of document-structure / metadata words.
@@ -1162,10 +1206,10 @@ def main():
                 write_local_match(ws, row, local_match)
                 clear_garbage_match(ws, row)
                 print(
-                    f"row {row}: {name!r} -> REVIEW "
+                    f"row {row}: {name!r} -> llm_pending "
                     f"(local match {local_match['brand']} via "
                     f"{local_match['matched_text']!r}, {local_match['match_type']}; "
-                    f"brand requires review)"
+                    f"brand in LOCAL_REVIEW_BRANDS)"
                 )
                 llm_pending.append((row, name))
             else:
@@ -1200,15 +1244,22 @@ def main():
             print(f"  saved ({start + len(batch)}/{len(llm_pending)})")
             time.sleep(BATCH_WAIT)
     else:
+        # Local mode: no LLM available.  Rows in llm_pending either had
+        # is_maybe_product_row() return True (col 5 == "MAYBE_PRODUCT") or had no
+        # brand match and no pharma signal.  In both cases the final classification
+        # is MAYBE_PRODUCT — REVIEW is no longer a valid output value.
+        # This block only writes col B when it is still None/empty, so it can
+        # NEVER overwrite a 0 or 1 that was committed earlier in the main loop.
         for row, name in llm_pending:
             current = ws.cell(row=row, column=2).value
             if current is None or str(current).strip() == "":
-                if ws.cell(row=row, column=5).value == "MAYBE_PRODUCT":
-                    ws.cell(row=row, column=2, value="MAYBE_PRODUCT")
-                    print(f"row {row}: {name!r} -> MAYBE_PRODUCT (form+qty pattern)")
-                else:
-                    ws.cell(row=row, column=2, value="REVIEW")
-                    print(f"row {row}: {name!r} -> REVIEW (local unresolved)")
+                ws.cell(row=row, column=2, value="MAYBE_PRODUCT")
+                if ws.cell(row=row, column=5).value != "MAYBE_PRODUCT":
+                    # Row had no pharma signal — mark columns for traceability
+                    ws.cell(row=row, column=3, value="pattern-inferred")
+                    ws.cell(row=row, column=4, value="no-brand-fallback")
+                    ws.cell(row=row, column=5, value="MAYBE_PRODUCT")
+                print(f"row {row}: {name!r} -> MAYBE_PRODUCT (no-brand fallback)")
         wb.save(EXCEL_FILE)
 
     print("Done.")
