@@ -74,3 +74,10 @@ construct_v2_fixed.py
 
 # version file (kilo editor artifact)
 version
+
+# Large local training/data assets - transferred separately
+models/bge-pharma-v1/model.safetensors
+v2_hard_negative_mining.csv
+v2_hard_negative_mining_clean.csv
+testraw.xlsx
+EmcureSSSReport.xlsb
