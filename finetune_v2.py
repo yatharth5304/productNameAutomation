@@ -41,7 +41,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 # CONFIG
 # ============================================================================
 
-PROJECT      = Path(r"F:\Vintyaa\projects\Product Name Automation")
+PROJECT      = Path(__file__).resolve().parent
 CLEAN_CSV    = PROJECT / "v2_hard_negative_mining_clean.csv"
 V1_MODEL_DIR = PROJECT / "models" / "bge-pharma-v1"
 V2_MODEL_DIR = PROJECT / "models" / "bge-pharma-v2"
@@ -205,7 +205,7 @@ trainer_kwargs = dict(
     per_device_train_batch_size = BATCH_SIZE,
     gradient_accumulation_steps = GRAD_ACCUM,
     learning_rate               = LR,
-    warmup_steps                = WARMUP_RATIO,   # float -> ratio (same as V1)
+    warmup_steps                = warmup_n,   # float -> ratio (same as V1)
     fp16                        = FP16,
     bf16                        = False,
     use_cpu                     = USE_CPU,
