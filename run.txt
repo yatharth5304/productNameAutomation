@@ -1,5 +1,0 @@
-# Install dependencies
-pip install sentence-transformers torch openpyxl numpy
-
-# Run mining (should be much faster with GPU)
-python v2_hard_negative_mining.py
