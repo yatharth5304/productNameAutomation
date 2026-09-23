@@ -1,0 +1,76 @@
+# ─────────────────────────────────────────────────────────────
+# .gitignore — Product Name Automation
+# ─────────────────────────────────────────────────────────────
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+*.credentials
+*.credentials.json
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.orig
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude / Antigravity tool directories
+.claude/
+.kilo/
+
+# Embeddings cache (large, regenerable from model + master)
+embeddings/
+
+# Temporary / scratch outputs
+outputtest.txt
+run.txt
+*.log
+*.tmp
+
+# Trainer intermediate checkpoints (large, optimizer state not needed for inference)
+# NOTE: models/bge-pharma-v1/ is kept (required for V2 training start)
+# NOTE: models/bge-pharma-v2/ will be kept once trained
+models/bge-pharma-v1/checkpoint-67/optimizer.pt
+models/bge-pharma-v1/checkpoint-67/rng_state.pth
+models/bge-pharma-v1/checkpoint-67/scheduler.pt
+
+# Test / scratch xlsx files (not part of pipeline)
+test.xlsx
+test1.xlsx
+testraw.xlsx
+
+# Profile intermediate scripts (one-off profiling runs)
+profile_step*.py
+profile_stage*.py
+profile_results.txt
+
+# Stage 2 intermediate scripts (already subsumed)
+stage2_part*.py
+
+# Reconstruct intermediate scripts
+reconstruct_v2_final_v2.py
+reconstruct_v2_final_v3.py
+construct_v2_fixed.py
+
+# version file (kilo editor artifact)
+version

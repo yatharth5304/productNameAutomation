@@ -1,0 +1,14 @@
+# Core ML / Deep Learning
+torch>=2.0.0
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+accelerate>=0.20.0
+
+# Data Processing
+pandas>=1.5.0
+numpy>=1.23.0
+openpyxl>=3.1.0
+
+# Utilities
+tqdm>=4.65.0
+pyyaml>=6.0
