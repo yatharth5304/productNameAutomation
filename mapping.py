@@ -100,7 +100,7 @@ NOVITA_RERANK_URL = "https://novita.ai"
 RERANKER_MODEL_NAME = "zai-org/glm-5.3-flash"
 RERANKER_TIMEOUT = 150
 MASTER_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\PRODUCT_MASTER1.xlsx"
-INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\testingg.xlsx"
+INPUT_OUTPUT_XLSX_PATH = r"f:\Vintyaa\projects\Product Name Automation\test1.xlsx"
 # Retain the existing API throttle without delaying rows resolved locally.
 DELAY_BETWEEN_LLM_REQUESTS = 2.0
 ROW_LIMIT = 19888000        # process only this many rows; set to None to process all
@@ -3356,7 +3356,7 @@ def detect_dosage_form_in_input(input_name: str, verbose=False) -> set:
         (r'\bBARS?\b|\bSYNDET\b', 'BAR'),
         (r'\bGRANULES?\b|\bGRANUL\b|\bGRANULS\b', 'GRANULES'),
         (r'\bSACHETS?\b', 'SACHET'),
-        (r'\bLOTIONS?\b|\bLOT\.?\b', 'LOTION'),
+        (r'\bLOTIONS?\b|\bLOT\.?\b|\bLO\b', 'LOTION'),
         (r'\bTONICS?\b', 'TONIC'),
     ]
     for pattern, form_name in form_patterns:
@@ -4542,6 +4542,10 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     # re-introduce the known wrong sibling through a fallback.
     items = preserve_targeted_candidate(items, _targeted_code, verbose=verbose)
 
+    # Step 1.5b: Dosage form prioritization (moved earlier to gate compound token filter)
+    _input_forms = detect_dosage_form_in_input(input_name, verbose=False)
+    items = prioritize_by_dosage_form(items, _input_forms, verbose=verbose)
+
     # Step 1.5: Compound token pre-filter
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
     compound_token_digits = get_compound_token_digits(compound_tokens)
@@ -4592,6 +4596,9 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     orphan_quals = find_unmatched_qualifier_tokens(
         normalized_for_qual, brand, available_variants, available_sub_variants,
         brand_items=brand_scope_items)
+    # Exclude compound tokens (e.g. MOISTURE from MOIST->MOISTURIZING) from orphan check
+    if compound_token_letters:
+        orphan_quals = [q for q in orphan_quals if q not in compound_token_letters]
     if orphan_quals:
         # Lower-variant fallback: if the orphan is an EXTRA non-numeric qualifier
         # on top of a sub-brand variant the brand DOES carry (e.g. input 'X M PLUS'
@@ -4625,10 +4632,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                            suggestions=suggestions)
 
     # FORM-AWARE RETRY GUARD (Steps 2/3/3.5)
-    # Detected once up-front so the subtractive filters below can consult it.
-    # Step 4 keeps its own detect_dosage_form_in_input call and verbose output;
-    # the function is pure, so calling it twice changes nothing.
-    _input_forms = detect_dosage_form_in_input(input_name, verbose=False)
+    # _input_forms already detected earlier (before compound token filter)
+    # for form-aware retries in variant/sub-variant/name-strength steps.
 
     # Step 2: Variant filtering (FIX 5)
     detected_variants = detect_variants_in_input(
@@ -4674,10 +4679,6 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
             _retry = filter_items_by_name_strength(_pool, input_name, verbose=verbose)
             if _retry:
                 items = _retry
-
-    # Step 4: Dosage form prioritization (FIX 7)
-    detected_forms = detect_dosage_form_in_input(input_name, verbose=verbose)
-    items = prioritize_by_dosage_form(items, detected_forms, verbose=verbose)
 
     # Step 5: Pack size filtering (FIX 1 + RULE: no-pack -> base)
     input_pack_size = extract_pack_size_from_input(input_name)
