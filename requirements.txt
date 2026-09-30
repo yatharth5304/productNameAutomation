@@ -1,6 +1,0 @@
-# Production dependencies
-# Install with: pip install -r requirements.txt
-pandas>=1.5.0
-requests>=2.28.0
-openpyxl>=3.1.0
-rapidfuzz>=3.0.0
