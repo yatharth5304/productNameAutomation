@@ -4422,6 +4422,25 @@ def preserve_targeted_candidate(items: list, product_code: str, verbose=False) -
     return protected or items
 
 
+def preserve_atorec_variant(items: list, input_name: str) -> list:
+    """Keep an exact ATOREC ASP/CV/GOLD family before dosage-form filtering.
+
+    The master stores ASP/CV as capsules and GOLD without a detectable form.
+    A generic TAB/CAP hint must not replace an explicit variant with a sibling.
+    Unknown, misplaced, or conflicting qualifiers keep the existing pipeline.
+    """
+    qualifiers = set(re.findall(r'\b(?:ASP|CV|GOLD)\b',
+                                normalize_ocr_numeric_noise(input_name)))
+    if len(qualifiers) != 1:
+        return items
+    variant = next(iter(qualifiers))
+    if variant not in extract_brand_suffix_tokens(input_name, "ATOREC"):
+        return items
+    matches = [item for item in items
+               if str(item.get("variant", "")).strip().upper() == variant]
+    return matches or items
+
+
 # =========================
 # MAIN PRODUCT PROCESSOR
 # =========================
@@ -4541,6 +4560,10 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     # same restricted pool through brand_scope_items below, so they cannot
     # re-introduce the known wrong sibling through a fallback.
     items = preserve_targeted_candidate(items, _targeted_code, verbose=verbose)
+
+    # ATOREC only: keep the explicitly named family in every later fallback.
+    if brand == "ATOREC":
+        items = preserve_atorec_variant(items, input_name)
 
     # Step 1.5b: Dosage form prioritization (moved earlier to gate compound token filter)
     _input_forms = detect_dosage_form_in_input(input_name, verbose=False)
