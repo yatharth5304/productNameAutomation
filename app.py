@@ -65,6 +65,7 @@ mp.ROW_LIMIT = None
 # ---------------------------------------------------------------------------
 SHEET_GARBAGE = "garbage_check"
 SHEET_MAPPING = "mapping"
+SHEET_REVIEW = "mapping_review"
 
 COL_PRODUCT_NAME = "PRODUCT_NAME"
 COL_PRODUCT_CODE = "PRODUCT_CODE"
@@ -83,6 +84,20 @@ GC_COLS = [
 
 # Final mapping columns (3-column public interface)
 FINAL_COLS = [COL_PRODUCT_NAME, COL_PRODUCT_CODE, COL_MASTER_PRODUCT]
+
+# Only the new ANTIPOL/REBEZ policies use this optional review sheet.
+REVIEW_COLS = FINAL_COLS + ["REVIEW_STATUS", "CONFIDENCE", "REASON", "ALTERNATIVES"]
+NEW_FAMILY_REVIEW_REASONS = {
+    "DEFAULT_MISSING_DESCRIPTOR": "Draft ANTIPOL default; distinguishing descriptor missing. Business review required.",
+    "DEFAULT_MISSING_VARIANT": "Draft REBEZ S suspension default; S/SO qualifier missing. Business review required.",
+    "MISSING_DESCRIPTOR": "Product descriptor missing; review the alternatives.",
+    "MISSING_VARIANT": "Product qualifier missing; review the alternatives.",
+    "CONFLICT": "Conflicting product descriptors; no confirmed selection.",
+    "PACK": "Requested pack is incompatible or unclear.",
+    "FORM": "Requested formulation is incompatible or unclear.",
+    "OCR_QUALIFIER": "S0 is an ambiguous OCR qualifier; review S and SO before selection.",
+    "MASTER_METADATA": "Expected new-family metadata is incomplete or conflicting.",
+}
 
 # ---------------------------------------------------------------------------
 # UTILITY FUNCTIONS
@@ -301,7 +316,7 @@ def run_garbage_check_phase(product_names: list, brand_index, master_evidence, g
     return results
 
 
-def run_mapping_phase(input_xlsx: Path, gc_results: list) -> list:
+def run_mapping_phase(input_xlsx: Path, gc_results: list, review_results: list = None) -> list:
     """Write garbage_check sheet, then call process_excel_file for exact equivalence."""
     # Write garbage_check sheet first (required by process_excel_file)
     print("[3/4] Writing garbage_check sheet...")
@@ -325,6 +340,7 @@ def run_mapping_phase(input_xlsx: Path, gc_results: list) -> list:
 
     # Build lookup from mapping results
     map_lookup = {}
+    review_lookup = {}
     for _, r in df_map.iterrows():
         inp = str(r.get("Input_Column", "")).strip()
         code = r.get("Product_Code", "")
@@ -346,6 +362,15 @@ def run_mapping_phase(input_xlsx: Path, gc_results: list) -> list:
         else:
             norm_name = str(name) if not pd.isna(name) else "NO SUGGESTION"
 
+        if status.startswith(("REVIEW_ANTIPOL_", "REVIEW_REBEZ_")):
+            reason = status.split("_", 2)[2]
+            review_lookup[inp] = dict(zip(REVIEW_COLS, [
+                inp, norm_code, norm_name, status, "LOW",
+                NEW_FAMILY_REVIEW_REASONS.get(reason, "New-family selection requires review."),
+                str(r.get("Suggestions", "")).strip(),
+            ]))
+            # Keep review proposals out of the confirmed three-column feed.
+            norm_code, norm_name = "0", "NO SUGGESTION"
         map_lookup[inp] = (norm_code, norm_name)
 
     # Build final results preserving original order
@@ -362,11 +387,19 @@ def run_mapping_phase(input_xlsx: Path, gc_results: list) -> list:
         else:  # MAYBE_PRODUCT
             final_results.append({COL_PRODUCT_NAME: name, COL_PRODUCT_CODE: "0", COL_MASTER_PRODUCT: "NO SUGGESTION"})
 
+    if review_results is not None:
+        for result in final_results:
+            review = review_lookup.get(str(result[COL_PRODUCT_NAME]).strip())
+            if review is not None and result[COL_PRODUCT_CODE] == "0":
+                review = dict(review)
+                review[COL_PRODUCT_NAME] = result[COL_PRODUCT_NAME]
+                review_results.append(review)
     return final_results
 
 
-def write_output_workbook(input_xlsx: Path, gc_results: list, final_results: list):
-    """Write both sheets to the output workbook."""
+def write_output_workbook(input_xlsx: Path, gc_results: list, final_results: list,
+                          review_results: list = None):
+    """Write the existing sheets and any new-family decisions needing review."""
     print("Writing output workbook...")
 
     wb = Workbook()
@@ -383,6 +416,12 @@ def write_output_workbook(input_xlsx: Path, gc_results: list, final_results: lis
     ws_map.append(FINAL_COLS)
     for row in final_results:
         ws_map.append([row[c] for c in FINAL_COLS])
+
+    if review_results:
+        ws_review = wb.create_sheet(SHEET_REVIEW)
+        ws_review.append(REVIEW_COLS)
+        for row in review_results:
+            ws_review.append([row[c] for c in REVIEW_COLS])
 
     wb.save(input_xlsx)
     print(f"      Saved to {input_xlsx}")
@@ -435,10 +474,11 @@ def main():
     gc_results = run_garbage_check_phase(product_names, brand_index, master_evidence, garbage_rows)
 
     # 4. Run mapping phase (uses process_excel_file for exact equivalence)
-    final_results = run_mapping_phase(INPUT_XLSX, gc_results)
+    review_results = []
+    final_results = run_mapping_phase(INPUT_XLSX, gc_results, review_results)
 
     # 5. Write final 3-column mapping sheet (overwrites the mapping sheet from process_excel_file)
-    write_output_workbook(INPUT_XLSX, gc_results, final_results)
+    write_output_workbook(INPUT_XLSX, gc_results, final_results, review_results)
 
     # 6. Summary
     print_summary(final_results)

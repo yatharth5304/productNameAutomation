@@ -4444,6 +4444,233 @@ def preserve_atorec_variant(items: list, input_name: str) -> list:
 # =========================
 # MAIN PRODUCT PROCESSOR
 # =========================
+# New-family safeguards are active only with the complete approved additions.
+_NEW_FAMILY_REVIEW_CODES = {
+    "ANTIPOL": frozenset({"421113165", "421113163", "421113162", "421113164"}),
+    "REBEZ": frozenset({"421113186", "421113188"}),
+}
+
+
+def _new_family_review_result(brand, reason, items, input_name, selected=None,
+                              review_default=False):
+    """Keep approved review defaults distinct from confirmed mappings."""
+    suggestions = build_item_suggestions(items, input_name, top_n=len(items))
+    if selected is not None:
+        selected_code = str(selected.get("product_code", "")).strip()
+        suggestions.sort(key=lambda suggestion: suggestion.get("product_code") != selected_code)
+    output = "NO_CLEAR_MATCH"
+    code = ""
+    if review_default and selected is not None:
+        output = format_output_with_pack_size(
+            selected["product"], input_name, selected.get("pack_size", ""),
+        )
+        code = selected.get("product_code", "")
+        reason = "DEFAULT_" + reason
+    return make_result(
+        output, code, status=f"REVIEW_{brand}_{reason}",
+        confidence="LOW", candidate_count=len(items), suggestions=suggestions,
+    )
+
+
+def _new_family_input_variants(input_name, brand, family_items):
+    text = normalize_ocr_numeric_noise(input_name)
+    if brand == "REBEZ":
+        # Count suffixes are not the new S variant. Keep legacy input intact.
+        text = re.sub(r"(?<![\d.])\d+\s*\.?\s*S\b", " ", text)
+    compact = compact_variant_token(text)
+    variants = {str(item.get("variant", "")).strip().upper()
+                for item in family_items}
+    detected = detect_variants_in_input(
+        text, brand, variants, brand_items=family_items,
+    ) & variants
+    for item in family_items:
+        prefix_match = re.match(r"[A-Z]+", compact_variant_token(item["product"]))
+        prefix = prefix_match.group(0) if prefix_match else ""
+        if prefix and (compact.startswith(prefix)
+                       or (brand == "REBEZ"
+                           and compact.startswith(prefix.replace("SUSPENSION", "SUSP")))):
+            detected.add(str(item.get("variant", "")).strip().upper())
+    if brand == "ANTIPOL":
+        tokens = extract_variant_match_tokens(text)
+        if tokens & {"FACE", "WASH"}:
+            detected.add("FACE WASH")
+        if tokens & {"HAIR", "CLEANSER"}:
+            detected.add("HAIR CLEANSER")
+    return detected
+
+
+def _new_rebez_suspension_context(input_name, items):
+    """One activation predicate shared by review and candidate scoping."""
+    required = _NEW_FAMILY_REVIEW_CODES["REBEZ"]
+    family_items = [item for item in items
+                    if str(item.get("product_code", "")).strip() in required]
+    legacy_items = [item for item in items
+                    if str(item.get("product_code", "")).strip() not in required]
+    text = normalize_ocr_numeric_noise(input_name)
+    detected = _new_family_input_variants(text, "REBEZ", family_items)
+    forms = detect_dosage_form_in_input(text)
+    legacy_variants = {str(item.get("variant", "PLAIN")).strip().upper()
+                       for item in legacy_items} - {"", "PLAIN"}
+    legacy_detected = detect_variants_in_input(
+        text, "REBEZ", legacy_variants, brand_items=legacy_items,
+    ) & legacy_variants
+    active = bool(detected)
+    if not active and not legacy_detected and not (
+        forms & {"TABLET", "CAPSULE", "INJECTION"}
+    ):
+        active = bool(
+            re.search(r"\bSUSP(?:ENSION)?(?=\b|\d)", str(input_name).upper())
+            or re.search(r"(?<![\d.])200(?:\.0+)?\s*ML\b", text)
+        )
+    return active, detected, legacy_detected, forms
+
+
+def scope_new_rebez_candidates(input_name, brand, items):
+    required = _NEW_FAMILY_REVIEW_CODES["REBEZ"]
+    if str(brand).strip().upper() != "REBEZ" or not required.issubset(
+        {str(item.get("product_code", "")).strip() for item in items}
+    ):
+        return items
+    if _new_rebez_suspension_context(input_name, items)[0]:
+        return items
+    return [item for item in items
+            if str(item.get("product_code", "")).strip() not in required]
+
+
+def scope_new_orle_conflicting_strengths(input_name, brand, items):
+    """Retain legacy ORLE selection when 75 and a legacy strength coexist.
+
+    A number may be a pack rather than a dose; preserve the old result until
+    that ambiguity is clarified instead of changing shared strength rules.
+    """
+    new_code = "421113166"
+    if str(brand).strip().upper() != "ORLE" or not any(
+        str(item.get("product_code", "")).strip() == new_code for item in items
+    ):
+        return items
+    text = normalize_ocr_numeric_noise(input_name)
+    has_new_strength = re.search(r"(?<![\d.])75(?:\.0+)?(?![\d.])", text)
+    has_legacy_strength = re.search(r"(?<![\d.])(?:60|120)(?:\.0+)?(?![\d.])", text)
+    if has_new_strength and has_legacy_strength:
+        return [item for item in items
+                if str(item.get("product_code", "")).strip() != new_code]
+    return items
+
+
+def apply_new_family_review_rules(input_name, brand, items, raw_input_name=None):
+    """Protect only the new ANTIPOL presentations and REBEZ suspensions.
+
+    Existing masters and legacy REBEZ tablet/capsule/injection routes are
+    unchanged. An explicit descriptor is never replaced by a default.
+    """
+    required = _NEW_FAMILY_REVIEW_CODES.get(str(brand).strip().upper())
+    if required is None or not required.issubset(
+        {str(item.get("product_code", "")).strip() for item in items}
+    ):
+        return None
+    brand = str(brand).strip().upper()
+    family_items = [item for item in items
+                    if str(item.get("product_code", "")).strip() in required]
+    variants = {str(item.get("variant", "")).strip().upper(): item
+                for item in family_items}
+    expected_variants = ({"DAY", "NIGHT", "FACE WASH", "HAIR CLEANSER"}
+                         if brand == "ANTIPOL" else {"S", "SO"})
+    if set(variants) != expected_variants:
+        return _new_family_review_result(brand, "MASTER_METADATA", family_items, input_name)
+
+    text = normalize_ocr_numeric_noise(input_name)
+    if brand == "REBEZ":
+        raw = str(raw_input_name if raw_input_name is not None else input_name).upper()
+        if re.search(r"\bS0\b", raw) and (
+            re.search(r"\bSUSP(?:ENSION)?(?=\b|\d)", raw)
+            or re.search(r"(?<![\d.])200(?:\.0+)?\s*ML\b", raw)
+        ):
+            return _new_family_review_result(
+                brand, "OCR_QUALIFIER", family_items, text,
+            )
+    detected = _new_family_input_variants(text, brand, family_items)
+    forms = detect_dosage_form_in_input(text)
+    if brand == "REBEZ":
+        legacy_items = [item for item in items if item not in family_items]
+        active, detected, legacy_detected, forms = _new_rebez_suspension_context(
+            input_name, items,
+        )
+        if not active:
+            return None
+        if detected and legacy_detected:
+            return _new_family_review_result(
+                brand, "CONFLICT", family_items + legacy_items, text,
+            )
+
+    if len(detected) > 1:
+        return _new_family_review_result(brand, "CONFLICT", family_items, text)
+    selected = variants[next(iter(detected))] if detected else None
+    pool = [selected] if selected is not None else list(family_items)
+    if selected is None and brand == "ANTIPOL" and "CREAM" in forms:
+        pool = [variants["DAY"], variants["NIGHT"]]
+    if selected is not None:
+        expected_forms = detect_dosage_form_in_product(selected["product"])
+        if forms and (not expected_forms or not forms.issubset(expected_forms)):
+            return _new_family_review_result(brand, "FORM", pool, text, selected)
+    elif forms and not forms.issubset(
+        {"CREAM"} if brand == "ANTIPOL" else {"SUSPENSION"}
+    ):
+        return _new_family_review_result(brand, "FORM", pool, text)
+
+    quantities = [(float(number), "GM" if unit == "G" else unit)
+                  for number, unit in re.findall(
+                      r"(?<![\d.])(\d+(?:\.\d+)?)\s*(MCG|MG|GM|ML|KG|G|L|IU|UNIT)\b",
+                      text)]
+    pack = extract_pack_size_from_input(text)
+    multiplier = re.search(r"(?<![\d.])(\d+)\s*[X*×]\s*\d+(?:\.\d+)?\s*(?:GM|G|ML)\b", text)
+    uncertain_multiplier = bool(multiplier and int(multiplier.group(1)) != 1)
+
+    def pack_agrees(item):
+        expected_pack = parse_pack_size_value(item.get("pack_size", ""))
+        unit_match = re.search(r"\b(GM|G|ML)\b", str(item.get("pack_size", "")).upper())
+        expected_unit = unit_match.group(1) if unit_match else ""
+        expected_unit = "GM" if expected_unit == "G" else expected_unit
+        if expected_pack is None or uncertain_multiplier:
+            return False
+        if quantities and any(number != expected_pack or unit != expected_unit
+                              for number, unit in quantities):
+            return False
+        if pack:
+            try:
+                if float(pack) != expected_pack:
+                    return False
+            except ValueError:
+                return False
+        return bool(quantities or pack) or not re.search(r"\d", text)
+
+    matching_pack = [item for item in pool if pack_agrees(item)]
+    if not matching_pack:
+        return _new_family_review_result(brand, "PACK", pool, text, selected)
+    if selected is not None:
+        return None
+    if quantities or pack:
+        pool = matching_pack
+    default = None
+    if brand == "ANTIPOL":
+        if forms == {"CREAM"}:
+            default = variants["DAY"]
+        elif not forms and quantities and all(
+            quantity == (100.0, "GM") for quantity in quantities
+        ):
+            default = variants["FACE WASH"]
+    elif (
+        re.search(r"\bSUSP(?:ENSION)?(?=\b|\d)", str(input_name).upper())
+        and quantities
+        and all(quantity == (200.0, "ML") for quantity in quantities)
+    ):
+        default = variants["S"]
+    return _new_family_review_result(
+        brand, "MISSING_DESCRIPTOR" if brand == "ANTIPOL" else "MISSING_VARIANT",
+        pool, text, default, review_default=default is not None,
+    )
+
+
+
 def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                     client, verbose=False, _lower_variant_retry=False, forced_brand: str = None,
                     auto_detect: bool = False) -> tuple:
@@ -4533,6 +4760,14 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         return make_result("NO_CLEAR_MATCH", "", status="NO_BRAND",
                            confidence="NONE", candidate_count=0,
                            suggestions=suggestions)
+
+    items = scope_new_rebez_candidates(input_name, brand, items)
+    items = scope_new_orle_conflicting_strengths(input_name, brand, items)
+    family_review = apply_new_family_review_rules(
+        input_name, brand, items, raw_input_name=raw_input_name,
+    )
+    if family_review is not None:
+        return family_review
 
     # POVIZTRA-only preprocessing must happen after brand resolution so the
     # same OCR tokens retain their existing meaning for all other brands.

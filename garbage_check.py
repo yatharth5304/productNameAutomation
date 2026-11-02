@@ -820,6 +820,40 @@ def input_form_groups(value):
     return master_form_groups(value)
 
 
+def new_family_fused_product_match(name, master_evidence):
+    """Recognize only audited compact ANTIPOL/REBEZ presentations.
+
+    This does not relax the ordinary form/quantity patterns or the caller's
+    existing brand-invalidation gates.  The corresponding non-PLAIN variant
+    must already be present in the vocabulary-backed master evidence.
+    """
+    allowed = {
+        "ANTIPOLDAYCREAM50GM": ("ANTIPOL", "DAY"),
+        "ANTIPOLNIGHTCREAM50GM": ("ANTIPOL", "NIGHT"),
+        "ANTIPOLFACEWASH100GM": ("ANTIPOL", "FACEWASH"),
+        "ANTIPOLHAIRCLEANSER100GM": ("ANTIPOL", "HAIRCLEANSER"),
+        "REBEZSSUSPENSION200ML": ("REBEZ", "S"),
+        "REBEZSOSUSPENSION200ML": ("REBEZ", "SO"),
+        "REBEZSSUSP200ML": ("REBEZ", "S"),
+        "REBEZSOSUSP200ML": ("REBEZ", "SO"),
+    }
+    target = allowed.get(normalize_text(name))
+    if target is None or not master_evidence:
+        return None
+    brand, variant = target
+    entry = master_evidence.get(brand)
+    if not entry or variant not in entry.get("variants", set()):
+        return None
+    if not any(product.get("variant") == variant
+               for product in entry.get("products", [])):
+        return None
+    return {
+        "brand": entry["brand"],
+        "matched_text": name,
+        "match_type": "master-new-family-exact",
+    }
+
+
 def master_product_match(name, master_evidence, precomputed_spans=None):
     """Return verified master evidence for fused variants or a narrow OCR typo.
 
@@ -828,6 +862,9 @@ def master_product_match(name, master_evidence, precomputed_spans=None):
     either an exact ``brand+variant`` token from the master or a non-prefix,
     two-edit brand spelling with a master strength present in the row.
     """
+    family_match = new_family_fused_product_match(name, master_evidence)
+    if family_match:
+        return family_match
     if not master_evidence:
         return None
 
