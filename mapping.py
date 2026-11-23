@@ -4671,6 +4671,14 @@ def apply_new_family_review_rules(input_name, brand, items, raw_input_name=None)
 
 
 
+# MP may be glued to the brand or dose. A neighboring letter remains part of a token.
+_AMARYL_MP_REQUEST = re.compile(
+    r"(?<![^\W_])AMARYL[\s.,:/_\u2010-\u2014-]*(?:\(\s*|\[\s*)?MP(?=$|[\W_]|\d)",
+    re.IGNORECASE,
+)
+_AMARYL_MP_VARIANT = re.compile(r"MP(?=$|[\W_]|\d)", re.IGNORECASE)
+
+
 def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                     client, verbose=False, _lower_variant_retry=False, forced_brand: str = None,
                     auto_detect: bool = False) -> tuple:
@@ -4760,6 +4768,20 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
         return make_result("NO_CLEAR_MATCH", "", status="NO_BRAND",
                            confidence="NONE", candidate_count=0,
                            suggestions=suggestions)
+
+    if brand == "AMARYL" and (
+        _AMARYL_MP_REQUEST.search(raw_input_name) or _AMARYL_MP_REQUEST.search(input_name)
+    ):
+        items = [
+            item for item in items
+            if _AMARYL_MP_VARIANT.match(item["variant"])
+            or _AMARYL_MP_REQUEST.search(item["product"])
+        ]
+        if not items:
+            if verbose:
+                print("\nNO_CLEAR_MATCH (AMARYL MP is absent from the master)")
+            return make_result("NO_CLEAR_MATCH", "", status="VARIANT_NOT_IN_MASTER",
+                               confidence="NONE")
 
     items = scope_new_rebez_candidates(input_name, brand, items)
     items = scope_new_orle_conflicting_strengths(input_name, brand, items)
