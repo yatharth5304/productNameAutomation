@@ -1,6 +1,8 @@
 import difflib
 import re
 import time
+import unicodedata
+from pathlib import Path
 
 import requests
 from openpyxl import load_workbook
@@ -12,6 +14,8 @@ MODEL = "nvidia/nemotron-3-nano-30b-a3b"
 
 EXCEL_FILE = "test1.xlsx"
 BRANDS_FILE = "Brand Names.txt"
+UNAVAILABLE_BRANDS_FILE = Path(__file__).resolve().with_name("Unavailable Brand Names.txt")
+UNAVAILABLE_BRAND_CODE = "2"
 PRODUCT_MASTER_FILE = "PRODUCT_MASTER1.xlsx"
 
 BATCH_SIZE = 2    # rows per API call
@@ -607,6 +611,52 @@ def load_brands():
         return re.findall(r'"([^"]+)"', f.read())
 
 
+def load_unavailable_brands(path=None):
+    """Read the exact single-token brands once per classifier run."""
+    path = Path(path) if path is not None else UNAVAILABLE_BRANDS_FILE
+    brands = set()
+    with path.open(encoding="utf-8-sig") as source:
+        for line_number, line in enumerate(source, start=1):
+            brand = line.strip()
+            if not brand:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9]+", brand):
+                raise ValueError(f"{path}:{line_number}: expected one alphanumeric brand token")
+            brand = brand.upper()
+            if brand in brands:
+                raise ValueError(f"{path}:{line_number}: duplicate unavailable brand {brand!r}")
+            brands.add(brand)
+    return frozenset(brands)
+
+
+_UNAVAILABLE_TOKEN_PATTERN = re.compile(r"\w+")
+_UNAVAILABLE_TOKEN_JOINERS = {"Mn", "Mc", "Me", "Cf", "Pc"}
+
+
+def match_unavailable_brand(name, unavailable_brands):
+    """Return the sole exact unavailable brand and its original text, if any."""
+    if not unavailable_brands:
+        return None
+
+    match = None
+    for token in _UNAVAILABLE_TOKEN_PATTERN.finditer(name):
+        text = token.group()
+        if not text.isascii() or (brand := text.upper()) not in unavailable_brands:
+            continue
+        # Unicode marks and format characters can be attached to a word
+        # even though the regular expression does not treat them as word characters.
+        start, end = token.span()
+        if start and unicodedata.category(name[start - 1]) in _UNAVAILABLE_TOKEN_JOINERS:
+            continue
+        if end < len(name) and unicodedata.category(name[end]) in _UNAVAILABLE_TOKEN_JOINERS:
+            continue
+        if match is None:
+            match = {"brand": brand, "matched_text": text, "match_type": "exact"}
+        elif brand != match["brand"]:
+            return None
+    return match
+
+
 def normalize_text(value):
     return re.sub(r"[^A-Z0-9]+", "", str(value).upper())
 
@@ -734,7 +784,7 @@ def build_brand_index(brands):
     return index
 
 
-def build_master_product_evidence(brand_index):
+def build_master_product_evidence(brand_index, *, unavailable_brands=frozenset()):
     """Return the master-backed evidence needed for conservative OCR recovery.
 
     The normal brand matcher intentionally works on complete token spans.  OCR
@@ -745,6 +795,9 @@ def build_master_product_evidence(brand_index):
     aliases.
     """
     brand_norm_to_brand = {brand_norm: brand for brand, brand_norm in brand_index}
+    conflicts = unavailable_brands.intersection(brand_norm_to_brand)
+    if conflicts:
+        raise ValueError(f"Unavailable brands in the positive vocabulary: {', '.join(sorted(conflicts))}")
     evidence = {}
 
     wb = load_workbook(PRODUCT_MASTER_FILE, read_only=True, data_only=True)
@@ -759,8 +812,19 @@ def build_master_product_evidence(brand_index):
                 f"{PRODUCT_MASTER_FILE} is missing required columns: {sorted(missing)}"
             )
 
+        code_column = columns.get("PRODUCT_CODE")
         for row in ws.iter_rows(min_row=2, values_only=True):
             brand_norm = normalize_text(row[columns["BRAND_NAME"]] or "")
+            if brand_norm in unavailable_brands:
+                raise ValueError(f"Unavailable brand {brand_norm!r} is in {PRODUCT_MASTER_FILE}")
+            if unavailable_brands and code_column is not None:
+                try:
+                    normalized_code = int(float(str(row[code_column]).strip()))
+                except (ValueError, OverflowError):
+                    normalized_code = None
+                if normalized_code == 2:
+                    raise ValueError(f"{PRODUCT_MASTER_FILE} uses reserved product code {UNAVAILABLE_BRAND_CODE}")
+
             canonical_brand = brand_norm_to_brand.get(brand_norm)
             if not canonical_brand:
                 continue
@@ -1298,14 +1362,16 @@ def llm_enabled():
 
 
 def main():
-    if llm_enabled() and not API_KEY:
+    use_llm = llm_enabled()
+    if use_llm and not API_KEY:
         raise RuntimeError(
             "API key not found. Paste your Novita API key into API_KEY at the top of this file."
         )
 
     brands = load_brands()
     brand_index = build_brand_index(brands)
-    master_evidence = build_master_product_evidence(brand_index)
+    unavailable_brands = load_unavailable_brands()
+    master_evidence = build_master_product_evidence(brand_index, unavailable_brands=unavailable_brands)
     garbage_rows = build_garbage_set()
     print(f"{len(brands)} brands loaded; {len(master_evidence)} master brand groups indexed")
 
@@ -1343,6 +1409,7 @@ def main():
 
     local_product = 0
     local_garbage = 0
+    unavailable_count = 0
     llm_pending = []
     for row, name in pending:
         spans = token_spans(name)
@@ -1536,6 +1603,20 @@ def main():
                 )
                 llm_pending.append((row, name))
             else:
+                # Preserve the existing fallback for invalidated brand matches.
+                if not initial_match_brand_norm:
+                    unavailable_match = match_unavailable_brand(name, unavailable_brands)
+                    if unavailable_match:
+                        ws.cell(row=row, column=2, value=UNAVAILABLE_BRAND_CODE)
+                        write_local_match(ws, row, unavailable_match)
+                        clear_garbage_match(ws, row)
+                        unavailable_count += 1
+                        print(f"row {row}: {name!r} -> {UNAVAILABLE_BRAND_CODE} "
+                              f"(brand unavailable: {unavailable_match['brand']})")
+                        if use_llm:
+                            # Keep this row in its original batch for any unresolved peer.
+                            llm_pending.append((row, name))
+                        continue
                 if is_maybe_product_row(name):
                     ws.cell(row=row, column=3, value="pattern-inferred")
                     ws.cell(row=row, column=4, value="form+qty match")
@@ -1548,18 +1629,26 @@ def main():
                 llm_pending.append((row, name))
 
     wb.save(EXCEL_FILE)
+    unresolved_count = len(llm_pending) - (unavailable_count if use_llm else 0)
     print(
         f"{len(pending)} rows checked: "
         f"{local_product} local product, {local_garbage} local garbage, "
-        f"{len(llm_pending)} unresolved"
+        f"{unavailable_count} unavailable brand, {unresolved_count} unresolved"
     )
 
-    if llm_enabled():
+    if use_llm:
         for start in range(0, len(llm_pending), BATCH_SIZE):
             batch = llm_pending[start:start + BATCH_SIZE]
+            unresolved_rows = {
+                row for row, _ in batch if not has_result(ws.cell(row=row, column=2).value)
+            }
+            if not unresolved_rows:
+                continue
             results = classify_batch([name for _, name in batch], brands)
 
             for (row, name), result in zip(batch, results):
+                if row not in unresolved_rows:
+                    continue
                 ws.cell(row=row, column=2, value=result)
                 print(f"row {row}: {name!r} -> {result}")
 

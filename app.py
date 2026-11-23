@@ -70,6 +70,7 @@ SHEET_REVIEW = "mapping_review"
 COL_PRODUCT_NAME = "PRODUCT_NAME"
 COL_PRODUCT_CODE = "PRODUCT_CODE"
 COL_MASTER_PRODUCT = "MASTER_PRODUCT_NAME"
+UNAVAILABLE_BRAND_OUTPUT = "BRAND NOT AVAILABLE "
 
 # Garbage check intermediate columns
 GC_COLS = [
@@ -146,17 +147,19 @@ def build_garbage_check_resources():
     print("[1/4] Loading garbage_check resources...")
     brands = gc.load_brands()
     brand_index = gc.build_brand_index(brands)
-    master_evidence = gc.build_master_product_evidence(brand_index)
+    unavailable_brands = gc.load_unavailable_brands()
+    master_evidence = gc.build_master_product_evidence(brand_index, unavailable_brands=unavailable_brands)
     garbage_rows = gc.build_garbage_set()
     print(f"      {len(brands)} brands, {len(master_evidence)} master brand groups, {len(garbage_rows)} exact garbage phrases")
-    return brands, brand_index, master_evidence, garbage_rows
+    return brands, brand_index, master_evidence, garbage_rows, unavailable_brands
 
 
-def classify_single_product(name: str, brand_index, master_evidence, garbage_rows) -> tuple:
+def classify_single_product(name: str, brand_index, master_evidence, garbage_rows, *,
+                            unavailable_brands=frozenset()) -> tuple:
     """
     Replicate garbage_check.py main() classification logic for a single product name.
     Returns: (classification, matched_brand, matched_text, match_type, garbage_phrase, garbage_match_type)
-    classification: "0" | "1" | "MAYBE_PRODUCT"
+    classification: "0" | "1" | "2" | "MAYBE_PRODUCT"
     """
     spans = gc.token_spans(name)
     exact_match = gc.exact_product_match(name, brand_index, precomputed_spans=spans)
@@ -275,10 +278,17 @@ def classify_single_product(name: str, brand_index, master_evidence, garbage_row
             garbage_match["match_type"],
         )
 
-    # Local match but brand in LOCAL_REVIEW_BRANDS (currently empty)
-    if local_match:
-        # In local mode, this falls through to MAYBE_PRODUCT below
-        pass
+    if not local_match and not initial_match_brand_norm:
+        unavailable_match = gc.match_unavailable_brand(name, unavailable_brands)
+        if unavailable_match:
+            return (
+                gc.UNAVAILABLE_BRAND_CODE,
+                unavailable_match["brand"],
+                unavailable_match["matched_text"],
+                unavailable_match["match_type"],
+                "",
+                "",
+            )
 
     # MAYBE_PRODUCT: has pharma form/qty signals but no brand match
     if gc.is_maybe_product_row(name):
@@ -288,18 +298,21 @@ def classify_single_product(name: str, brand_index, master_evidence, garbage_row
     return ("MAYBE_PRODUCT", "pattern-inferred", "no-brand-fallback", "MAYBE_PRODUCT", "", "")
 
 
-def run_garbage_check_phase(product_names: list, brand_index, master_evidence, garbage_rows) -> list:
+def run_garbage_check_phase(product_names: list, brand_index, master_evidence, garbage_rows, *,
+                            unavailable_brands=frozenset()) -> list:
     """Classify all product names through garbage_check pipeline."""
     print(f"[2/4] Running garbage_check on {len(product_names)} rows...")
     results = []
-    counts = {"0": 0, "1": 0, "MAYBE_PRODUCT": 0}
+    counts = {"0": 0, "1": 0, gc.UNAVAILABLE_BRAND_CODE: 0, "MAYBE_PRODUCT": 0}
 
     for i, name in enumerate(product_names):
         if i % 2000 == 0 and i > 0:
             print(f"      Processed {i}/{len(product_names)}...")
 
         classification, matched_brand, matched_text, match_type, garbage_phrase, garbage_match_type = \
-            classify_single_product(name, brand_index, master_evidence, garbage_rows)
+            classify_single_product(
+                name, brand_index, master_evidence, garbage_rows, unavailable_brands=unavailable_brands
+            )
 
         counts[classification] = counts.get(classification, 0) + 1
         results.append({
@@ -312,7 +325,8 @@ def run_garbage_check_phase(product_names: list, brand_index, master_evidence, g
             "Garbage match type": garbage_match_type,
         })
 
-    print(f"      Classification: 0={counts['0']}  1={counts['1']}  MAYBE_PRODUCT={counts['MAYBE_PRODUCT']}")
+    print(f"      Classification: 0={counts['0']}  1={counts['1']}  "
+          f"2={counts[gc.UNAVAILABLE_BRAND_CODE]}  MAYBE_PRODUCT={counts['MAYBE_PRODUCT']}")
     return results
 
 
@@ -329,14 +343,16 @@ def run_mapping_phase(input_xlsx: Path, gc_results: list, review_results: list =
         ws_gc.append([row[c] for c in GC_COLS])
     wb.save(input_xlsx)
 
-    # Call process_excel_file - this reads garbage_check sheet and writes mapping sheet
-    print("[4/4] Running mapping via process_excel_file (exact original pipeline)...")
-    mp.INPUT_OUTPUT_XLSX_PATH = str(input_xlsx)
-    mp.process_excel_file()
-
-    # Read the mapping sheet and convert to final 3-column format
-    print("Reading mapping results...")
-    df_map = pd.read_excel(input_xlsx, sheet_name="mapping", engine="openpyxl")
+    # The mapper produces a fresh diagnostic sheet only when it has eligible rows.
+    df_map = pd.DataFrame()
+    if any(row["Garbage check"] == "0" for row in gc_results):
+        print("[4/4] Running mapping via process_excel_file (exact original pipeline)...")
+        mp.INPUT_OUTPUT_XLSX_PATH = str(input_xlsx)
+        mp.process_excel_file()
+        print("Reading mapping results...")
+        df_map = pd.read_excel(input_xlsx, sheet_name="mapping", engine="openpyxl")
+    else:
+        print("[4/4] No confirmed product rows to map.")
 
     # Build lookup from mapping results
     map_lookup = {}
@@ -381,6 +397,12 @@ def run_mapping_phase(input_xlsx: Path, gc_results: list, review_results: list =
 
         if classification == "1":
             final_results.append({COL_PRODUCT_NAME: name, COL_PRODUCT_CODE: "1", COL_MASTER_PRODUCT: "GARBAGE"})
+        elif classification == gc.UNAVAILABLE_BRAND_CODE:
+            final_results.append({
+                COL_PRODUCT_NAME: name,
+                COL_PRODUCT_CODE: gc.UNAVAILABLE_BRAND_CODE,
+                COL_MASTER_PRODUCT: UNAVAILABLE_BRAND_OUTPUT,
+            })
         elif classification == "0":
             code, master = map_lookup.get(name, ("0", "NO SUGGESTION"))
             final_results.append({COL_PRODUCT_NAME: name, COL_PRODUCT_CODE: code, COL_MASTER_PRODUCT: master})
@@ -430,7 +452,8 @@ def write_output_workbook(input_xlsx: Path, gc_results: list, final_results: lis
 def print_summary(final_results: list):
     """Print final statistics."""
     total = len(final_results)
-    mapped = sum(1 for r in final_results if r[COL_PRODUCT_CODE] not in ("0", "1"))
+    mapped = sum(1 for r in final_results if r[COL_PRODUCT_CODE] not in ("0", "1", gc.UNAVAILABLE_BRAND_CODE))
+    unavailable = sum(1 for r in final_results if r[COL_PRODUCT_CODE] == gc.UNAVAILABLE_BRAND_CODE)
     garbage = sum(1 for r in final_results if r[COL_PRODUCT_CODE] == "1")
     no_suggestion = sum(1 for r in final_results if r[COL_PRODUCT_CODE] == "0")
 
@@ -440,6 +463,7 @@ def print_summary(final_results: list):
     print(f"Total rows processed:     {total}")
     print(f"  Successfully mapped:    {mapped}")
     print(f"  Garbage (code=1):       {garbage}")
+    print(f"  Brand unavailable (2):  {unavailable}")
     print(f"  No suggestion (code=0): {no_suggestion}")
     print("=" * 60)
 
@@ -470,8 +494,10 @@ def main():
     print(f"  Backup created: {backup.name}")
 
     # 3. Run garbage_check phase
-    brands, brand_index, master_evidence, garbage_rows = build_garbage_check_resources()
-    gc_results = run_garbage_check_phase(product_names, brand_index, master_evidence, garbage_rows)
+    _, brand_index, master_evidence, garbage_rows, unavailable_brands = build_garbage_check_resources()
+    gc_results = run_garbage_check_phase(
+        product_names, brand_index, master_evidence, garbage_rows, unavailable_brands=unavailable_brands
+    )
 
     # 4. Run mapping phase (uses process_excel_file for exact equivalence)
     review_results = []
