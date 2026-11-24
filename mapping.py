@@ -4347,6 +4347,71 @@ def normalize_poviztra_targeted_input(input_name: str) -> tuple:
     return text, text != original
 
 
+_CELOL_ORAL_CODES = {
+    # (without PLUS, with PLUS)
+    "CELOL": ("421110030", "424441788"),
+    "XT": ("421110031", "421111906"),
+    "D3": ("421111003", "424441917"),
+}
+_CELOL_BRAND = re.compile(r"\bCELOL(?=\b|XT\b|D[\s.-]*3\b|MAX\b|K[\s.-]*7\b)", re.I)
+_CELOL_FAMILY = re.compile(r"\b(?:XT|D[\s.-]*3|MAX|K[\s.-]*7)\b", re.I)
+# Stop at quantities and unrelated suffixes before looking for named variants.
+_CELOL_NAME_PREFIX = re.compile(
+    r"(?:(?:XT|D[\s.-]*3|MAX|K[\s.-]*7|PLUS|TAB(?:LET)?S?|CAP(?:SULE)?S?)\b|[\s.()/+-])*", re.I
+)
+_CELOL_BASE_TAIL = re.compile(
+    r"[\s.()/-]*(?:$|\d|\+|(?:PLUS|TABS?|TABLETS?|CAPS?|CAPSULES?|STRIPS?|PACK)\b)", re.I
+)
+# A separated sign glued to a number ("CELOL +5 PCS") belongs to the quantity.
+_CELOL_PLUS = re.compile(r"(?:\+(?!\s*\+)|[\s().-]+(?:\+(?!\s*\+|\d)|PLUS\b))", re.I)
+
+
+def _celol_oral_candidate_code(raw_name: str, cleaned_name: str, forms: set) -> str:
+    """Identify one of the three CELOL oral pairs before exact-form prioritization."""
+    if forms - {"TABLET", "CAPSULE"}:
+        return ""
+
+    text = raw_name
+    brand = _CELOL_BRAND.search(text)
+    if not brand:
+        # The existing mapper may have separated a glued brand and dosage form.
+        text = cleaned_name
+        brand = _CELOL_BRAND.search(text)
+    if brand:
+        tail = text[brand.end():]
+    else:
+        # The classifier can confirm a misspelled brand. Require an explicit
+        # family and oral form before using that hint (e.g. "CELO1 D3 TAB").
+        if not forms:
+            return ""
+        leading_token = re.match(r"\s*\w+", raw_name)
+        if not leading_token:
+            return ""
+        tail = raw_name[leading_token.end():]
+
+    name_end = _CELOL_NAME_PREFIX.match(tail).end()
+    tokens = list(_CELOL_FAMILY.finditer(tail, 0, name_end))
+    # An out-of-order family label needs the normal variant path. Never
+    # silently turn, for example, an explicit MAX or K 7 into the base pair.
+    if (brand and _CELOL_FAMILY.search(text, 0, brand.start())) or _CELOL_FAMILY.search(tail, name_end):
+        return ""
+    families = {re.sub(r"[\s.-]+", "", token.group().upper()) for token in tokens}
+    if len(families) > 1 or (not brand and not families):
+        return ""
+    family = next(iter(families), "CELOL")
+    if family == "CELOL" and not _CELOL_BASE_TAIL.match(tail):
+        return ""
+    if family not in _CELOL_ORAL_CODES:
+        return ""
+
+    # Inspect only the end of a product-name token. In particular, the '+'
+    # in "TAB 10+5" or "CAP++++++++" cannot promote the product to PLUS.
+    plus = (brand and _CELOL_PLUS.match(tail)) or any(
+        _CELOL_PLUS.match(tail, token.end()) for token in tokens
+    )
+    return _CELOL_ORAL_CODES[family][bool(plus)]
+
+
 def targeted_candidate_code(brand: str, input_name: str,
                             poviztra_normalized=False, raw_input_name: str = "") -> str:
     """Return an audited, uniquely determined SKU code or an empty string.
@@ -4681,7 +4746,7 @@ _AMARYL_MP_VARIANT = re.compile(r"MP(?=$|[\W_]|\d)", re.IGNORECASE)
 
 def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                     client, verbose=False, _lower_variant_retry=False, forced_brand: str = None,
-                    auto_detect: bool = False) -> tuple:
+                    auto_detect: bool = False, _celol_code: str = None) -> tuple:
     global REQ_COUNT, LLM_REQUEST_ATTEMPTS, SUM_PROMPT_TOKENS, SUM_COMPLETION_TOKENS, SUM_TOTAL_TOKENS
 
     # Preprocessing
@@ -4824,6 +4889,16 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
 
     # Step 1.5b: Dosage form prioritization (moved earlier to gate compound token filter)
     _input_forms = detect_dosage_form_in_input(input_name, verbose=False)
+    if brand == "CELOL":
+        # Keep the original decision on a lower-variant retry, even if that
+        # retry stripped part of an ambiguous name or its PLUS marker.
+        if _celol_code is None:
+            _celol_code = _celol_oral_candidate_code(raw_input_name, input_name, _input_forms)
+        if _celol_code:
+            items = [item for item in items if item["product_code"] == _celol_code]
+            if not items:
+                return make_result("NO_CLEAR_MATCH", "", status="VARIANT_NOT_IN_MASTER",
+                                   confidence="NONE")
     items = prioritize_by_dosage_form(items, _input_forms, verbose=verbose)
 
     # Step 1.5: Compound token pre-filter
@@ -4895,7 +4970,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
             if stripped and stripped != input_name and any(v != "PLAIN" for v in lower_vars):
                 res = process_product(stripped, brand_map, all_variants, all_sub_variants,
                                       client, verbose=verbose, _lower_variant_retry=True,
-                                      forced_brand=forced_brand, auto_detect=auto_detect)
+                                      forced_brand=brand if _celol_code else forced_brand,
+                                      auto_detect=auto_detect, _celol_code=_celol_code)
                 if res["status"] == "MATCHED" and res["output"] != "NO_CLEAR_MATCH":
                     if verbose:
                         print(f"\nRECOVERED (lower variant): '{brand}' lacks "
@@ -5145,6 +5221,13 @@ def suggest_local_match(input_name: str, brand_map: dict, verbose=False) -> tupl
     brand, items = find_best_brand_for_input(input_name, brand_map, verbose=verbose)
     if not brand or not items:
         return "NO_CLEAR_MATCH", ""
+    if brand == "CELOL":
+        forms = detect_dosage_form_in_input(input_name)
+        code = _celol_oral_candidate_code(raw_input_name, input_name, forms)
+        if code:
+            items = [item for item in items if item["product_code"] == code]
+            if not items:
+                return "NO_CLEAR_MATCH", ""
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
     compound_token_digits = get_compound_token_digits(compound_tokens)
     compound_token_letters = set()
