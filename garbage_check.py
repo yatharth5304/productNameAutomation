@@ -1052,23 +1052,38 @@ def exact_product_match(name, brand_index, precomputed_spans=None):
     if not spans:
         return None
 
-    for brand, brand_norm in brand_index:
-        if len(brand_norm) <= 3:
+    first_spans = first_single_token_spans = None
+    if type(spans) in (list, tuple):
+        try:
+            first_spans = {}
+            first_single_token_spans = {}
             for span in spans:
-                if len(span["tokens"]) == 1 and span["norm"] == brand_norm:
-                    return {
-                        "brand": brand,
-                        "matched_text": span["text"],
-                        "match_type": "exact",
-                    }
-            continue
-        for span in spans:
-            if span["norm"] == brand_norm:
-                return {
-                    "brand": brand,
-                    "matched_text": span["text"],
-                    "match_type": "exact",
-                }
+                norm = span["norm"]
+                first_spans.setdefault(norm, span)
+                if len(span["tokens"]) == 1:
+                    first_single_token_spans.setdefault(norm, span)
+        except (KeyError, TypeError):
+            # Custom spans may omit fields the old traversal would never read.
+            first_spans = first_single_token_spans = None
+
+    for brand, brand_norm in brand_index:
+        short_brand = len(brand_norm) <= 3
+        if first_spans is None:
+            # Preserve traversal for custom iterables, including one-shot iterators.
+            match = next((
+                span for span in spans
+                if (not short_brand or len(span["tokens"]) == 1)
+                and span["norm"] == brand_norm
+            ), None)
+        else:
+            by_norm = first_single_token_spans if short_brand else first_spans
+            match = by_norm.get(brand_norm)
+        if match is not None:
+            return {
+                "brand": brand,
+                "matched_text": match["text"],
+                "match_type": "exact",
+            }
     return None
 
 
@@ -1087,9 +1102,16 @@ def fuzzy_product_match(name, brand_index, precomputed_spans=None):
     }
     best_match = None
 
-    # One character set per span instead of one per (brand, span) pair. Parallel
-    # to `spans`, so the span visitation order inside the brand loop is unchanged.
+    # Append in original span order so complete ties still keep the first hit.
     span_sets = [frozenset(span["norm"]) for span in spans]
+    spans_by_brand_len = {}
+    for span, span_set in zip(spans, span_sets):
+        span_len = len(span["norm"])
+        entry = (span, span_set)
+        for brand_len in range(max(4, span_len - 2), span_len + 3):
+            max_edits = 2 if brand_len >= 10 else 1
+            if abs(span_len - brand_len) <= max_edits:
+                spans_by_brand_len.setdefault(brand_len, []).append(entry)
 
     for brand, brand_norm in brand_index:
         brand_len = len(brand_norm)
@@ -1102,11 +1124,8 @@ def fuzzy_product_match(name, brand_index, precomputed_spans=None):
         max_edits = 2 if brand_len >= 10 else 1
         brand_set = _BRAND_CHAR_SETS[brand_norm]
 
-        for span, span_set in zip(spans, span_sets):
+        for span, span_set in spans_by_brand_len.get(brand_len, ()):
             span_norm = span["norm"]
-            span_len = len(span_norm)
-            if abs(span_len - brand_len) > max_edits:
-                continue
 
             # --- Character-set pre-filter (set ops, runs before the O(m*n) DP) ---
             # A character present in the span but absent from the brand has to be
@@ -1415,7 +1434,6 @@ def main():
         spans = token_spans(name)
         exact_match = exact_product_match(name, brand_index, precomputed_spans=spans)
         fuzzy_match = None if exact_match else fuzzy_product_match(name, brand_index, precomputed_spans=spans)
-        master_match = master_product_match(name, master_evidence, precomputed_spans=spans)
         local_match = exact_match or fuzzy_match
 
         matched_brand_norm = normalize_text(local_match["brand"]) if local_match else ""
@@ -1544,13 +1562,11 @@ def main():
         # If the ordinary brand hit was invalidated (most importantly a false
         # NEW match), allow a separate, verified master-product match to win.
         # Other invalidation exceptions remain protected by this narrow gate.
-        if (
-            not local_match
-            and master_match
-            and initial_match_brand_norm in ("", "NEW")
-        ):
-            local_match = master_match
-            matched_brand_norm = normalize_text(local_match["brand"])
+        if not local_match and initial_match_brand_norm in ("", "NEW"):
+            master_match = master_product_match(name, master_evidence, precomputed_spans=spans)
+            if master_match:
+                local_match = master_match
+                matched_brand_norm = normalize_text(local_match["brand"])
 
         if local_match and matched_brand_norm not in LOCAL_REVIEW_BRANDS:
             ws.cell(row=row, column=2, value="0")

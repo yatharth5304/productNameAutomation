@@ -164,7 +164,6 @@ def classify_single_product(name: str, brand_index, master_evidence, garbage_row
     spans = gc.token_spans(name)
     exact_match = gc.exact_product_match(name, brand_index, precomputed_spans=spans)
     fuzzy_match = None if exact_match else gc.fuzzy_product_match(name, brand_index, precomputed_spans=spans)
-    master_match = gc.master_product_match(name, master_evidence, precomputed_spans=spans)
     local_match = exact_match or fuzzy_match
 
     matched_brand_norm = gc.normalize_text(local_match["brand"]) if local_match else ""
@@ -237,9 +236,11 @@ def classify_single_product(name: str, brand_index, master_evidence, garbage_row
             matched_brand_norm = "S-NUMLO"
 
     # Master match fallback for invalidated NEW
-    if not local_match and master_match and initial_match_brand_norm in ("", "NEW"):
-        local_match = master_match
-        matched_brand_norm = gc.normalize_text(local_match["brand"])
+    if not local_match and initial_match_brand_norm in ("", "NEW"):
+        master_match = gc.master_product_match(name, master_evidence, precomputed_spans=spans)
+        if master_match:
+            local_match = master_match
+            matched_brand_norm = gc.normalize_text(local_match["brand"])
 
     # ---- FINAL CLASSIFICATION ----
     if local_match and matched_brand_norm not in gc.LOCAL_REVIEW_BRANDS:

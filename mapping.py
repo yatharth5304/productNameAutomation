@@ -71,8 +71,10 @@ import re
 import sys
 import time
 import warnings
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 import requests
@@ -576,7 +578,24 @@ def numeric_strength_variant_value(variant: str) -> str:
     text = re.sub(r'[\s\-]*(?:PFS|IU|UNIT|MG|MCG|ML|GM)\.?$', '', text).strip()
     return text if re.fullmatch(r'\d+(?:\.\d+)?', text) else ""
 
+_OCR_NORMALIZATION_CACHE: ContextVar[dict[str, str] | None] = ContextVar(
+    "_OCR_NORMALIZATION_CACHE", default=None
+)
+
+
 def normalize_ocr_numeric_noise(value: str) -> str:
+    cache = _OCR_NORMALIZATION_CACHE.get()
+    if cache is None or type(value) is not str:
+        return _normalize_ocr_numeric_noise(value)
+    cached = cache.get(value)
+    if cached is not None:
+        return cached
+    normalized = _normalize_ocr_numeric_noise(value)
+    cache[value] = normalized
+    return normalized
+
+
+def _normalize_ocr_numeric_noise(value: str) -> str:
     text = str(value or "").upper().replace("+", " PLUS ")
     for source_token, target_token in INPUT_TOKEN_EQUIVALENTS.items():
         text = re.sub(r'\b' + re.escape(source_token) + r'\b', target_token, text)
@@ -1607,7 +1626,20 @@ def _is_strong_brand_token(token: str, brand_compacts: set) -> bool:
                for bc in brand_compacts)
 
 
-def strip_manufacturer_noise(input_name: str, brand_map: dict) -> str:
+class _BrandLookups(NamedTuple):
+    compacts: set[str]
+    letters: set[str]
+
+
+def _build_brand_lookups(brand_map: dict) -> _BrandLookups:
+    # Prefix ties use set iteration order. Insert keys in the original catalog order.
+    return _BrandLookups(
+        {compact_brand_token(brand) for brand in brand_map},
+        {letters for letters in map(_brand_letters, brand_map) if len(letters) >= 4},
+    )
+
+
+def strip_manufacturer_noise(input_name: str, brand_map: dict, *, _brand_lookups=None) -> str:
     """Remove a leading manufacturer-name prefix that OCR left in front of the
     real brand -- but ONLY when that prefix is not itself a brand and the brand
     that follows IS a strong match. So 'EMCOO TAPICEM ...'->'TAPICEM ...' and the
@@ -1617,7 +1649,8 @@ def strip_manufacturer_noise(input_name: str, brand_map: dict) -> str:
     tokens = text.split()
     if not tokens:
         return text
-    brand_compacts = {compact_brand_token(b) for b in brand_map}
+    brand_compacts = (_brand_lookups.compacts if _brand_lookups is not None
+                      else {compact_brand_token(b) for b in brand_map})
     first = tokens[0].upper()
 
     # A) manufacturer glued to brand by an OCR digit run: 'EMC00CLAMOB'
@@ -1703,7 +1736,7 @@ def _split_glued_variant(tok: str, var_tokens: set, subvar_tokens: set) -> str:
     return tok
 
 
-def desegment_ocr_input(input_name: str, brand_map: dict) -> str:
+def desegment_ocr_input(input_name: str, brand_map: dict, *, _brand_lookups=None) -> str:
     """Repair OCR strings that lost their spaces (or gained noise) so the brand /
     variant / strength / form become separable tokens. Handles: trailing 'X'
     redaction runs and '--', space-split decimals ('12. 5'->'12.5'), a split
@@ -1723,8 +1756,9 @@ def desegment_ocr_input(input_name: str, brand_map: dict) -> str:
     if not tokens:
         return s
 
-    brand_compacts = {compact_brand_token(b) for b in brand_map}
-    brand_letters = {_brand_letters(b) for b in brand_map if len(_brand_letters(b)) >= 4}
+    if _brand_lookups is None:
+        _brand_lookups = _build_brand_lookups(brand_map)
+    brand_compacts, brand_letters = _brand_lookups
 
     # Rejoin a split leading letter when it forms a real brand: 'E MSITA'->'EMSITA'
     if (len(tokens) >= 2 and len(tokens[0]) == 1 and tokens[0].isalpha()
@@ -4746,7 +4780,23 @@ _AMARYL_MP_VARIANT = re.compile(r"MP(?=$|[\W_]|\d)", re.IGNORECASE)
 
 def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                     client, verbose=False, _lower_variant_retry=False, forced_brand: str = None,
-                    auto_detect: bool = False, _celol_code: str = None) -> tuple:
+                    auto_detect: bool = False, _celol_code: str = None, *, _brand_lookups=None) -> tuple:
+    # A lower-variant retry belongs to the current attempt, with its own exact input text.
+    cache_token = None
+    if not _lower_variant_retry or _OCR_NORMALIZATION_CACHE.get() is None:
+        cache_token = _OCR_NORMALIZATION_CACHE.set({})
+    try:
+        return _process_product(input_name, brand_map, all_variants, all_sub_variants, client,
+                                verbose, _lower_variant_retry, forced_brand, auto_detect,
+                                _celol_code, _brand_lookups=_brand_lookups)
+    finally:
+        if cache_token is not None:
+            _OCR_NORMALIZATION_CACHE.reset(cache_token)
+
+
+def _process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
+                     client, verbose, _lower_variant_retry, forced_brand, auto_detect,
+                     _celol_code, *, _brand_lookups) -> tuple:
     global REQ_COUNT, LLM_REQUEST_ATTEMPTS, SUM_PROMPT_TOKENS, SUM_COMPLETION_TOKENS, SUM_TOTAL_TOKENS
 
     # Preprocessing
@@ -4754,8 +4804,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
     input_name = clean_duplicate_words(input_name)
     forced_brand_variant_tags = get_brand_variant_tags(brand_map, forced_brand) if forced_brand else None
     input_name = strip_parenthetical_noise(input_name, forced_brand_variant_tags)      # FIX 2
-    input_name = strip_manufacturer_noise(input_name, brand_map)  # EMCURE-prefix noise
-    input_name = desegment_ocr_input(input_name, brand_map)  # un-glue OCR strings
+    input_name = strip_manufacturer_noise(input_name, brand_map, _brand_lookups=_brand_lookups)
+    input_name = desegment_ocr_input(input_name, brand_map, _brand_lookups=_brand_lookups)
 
     if verbose:
         print("\n" + "="*80)
@@ -4971,7 +5021,8 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
                 res = process_product(stripped, brand_map, all_variants, all_sub_variants,
                                       client, verbose=verbose, _lower_variant_retry=True,
                                       forced_brand=brand if _celol_code else forced_brand,
-                                      auto_detect=auto_detect, _celol_code=_celol_code)
+                                      auto_detect=auto_detect, _celol_code=_celol_code,
+                                      _brand_lookups=_brand_lookups)
                 if res["status"] == "MATCHED" and res["output"] != "NO_CLEAR_MATCH":
                     if verbose:
                         print(f"\nRECOVERED (lower variant): '{brand}' lacks "
@@ -5365,6 +5416,7 @@ def process_excel_file():
         df_master = load_master(MASTER_XLSX_PATH)
         brand_map = build_brand_product_map(df_master)
         print(f"[OK] Loaded {len(brand_map)} unique brands")
+        brand_lookups = _build_brand_lookups(brand_map)
         all_variants = extract_all_variants_from_data(brand_map)
         all_sub_variants = extract_all_sub_variants_from_data(brand_map)
         print(f"[OK] Extracted {len(all_variants)} variants, {len(all_sub_variants)} sub-variants")
@@ -5421,6 +5473,7 @@ def process_excel_file():
               f"(out of {len(df_source)} total)")
         if df_combined.empty:
             print("No rows to process. Exiting.")
+            print("Mapping progress: 0/0")
             return
 
         df = df_combined
@@ -5445,6 +5498,11 @@ def process_excel_file():
 
     client = None
     total_rows = len(df)
+    mapping_total = sum(
+        not pd.isna(value) and str(value).strip() not in ("", "nan")
+        for value in df[input_column_name]
+    )
+    mapping_attempts = 0
     processed_count = 0
     skipped_count = 0
     error_count = 0
@@ -5459,8 +5517,6 @@ def process_excel_file():
         if output_column_name in df.columns and not pd.isna(row.get(output_column_name)):
             existing_output = str(row[output_column_name]).strip()
         if existing_output and existing_output not in ("", "nan", "NaN"):
-            print(f"[{idx+1:>{len(str(total_rows))}}/{total_rows}] "
-                  f"{input_name[:44]:<44} -> (already mapped, skipped)")
             skipped_count += 1
             continue
         if not input_name or input_name == "nan":
@@ -5481,7 +5537,8 @@ def process_excel_file():
             llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
             res = process_product(
                 input_name, brand_map, all_variants, all_sub_variants, client,
-                verbose=False, forced_brand=brand_hint, auto_detect=auto_detect_flag)
+                verbose=False, forced_brand=brand_hint, auto_detect=auto_detect_flag,
+                _brand_lookups=brand_lookups)
             df.at[idx, output_column_name] = res["output"]
             df.at[idx, product_code_column_name] = res["product_code"]
             df.at[idx, STATUS_COLUMN] = res["status"]
@@ -5489,7 +5546,6 @@ def process_excel_file():
             df.at[idx, CANDIDATES_COLUMN] = res["candidate_count"]
             df.at[idx, SUGGESTIONS_COLUMN] = format_suggestions(res["suggestions"])
             df.at[idx, SOURCE_COLUMN] = source_label
-            print(format_row_result(idx + 1, total_rows, input_name, res))
             processed_count += 1
             if LLM_REQUEST_ATTEMPTS > llm_request_attempts_before:
                 time.sleep(DELAY_BETWEEN_LLM_REQUESTS)
@@ -5512,6 +5568,13 @@ def process_excel_file():
             df.at[idx, CANDIDATES_COLUMN] = 0
             df.at[idx, SUGGESTIONS_COLUMN] = ""
             error_count += 1
+
+        mapping_attempts += 1
+        if mapping_attempts % 100 == 0:
+            print(f"Mapping progress: {mapping_attempts}/{mapping_total}")
+
+    if not mapping_attempts or mapping_attempts % 100:
+        print(f"Mapping progress: {mapping_attempts}/{mapping_total}")
 
     print(f"\n{'='*60}\nSaving final results...")
     try:
@@ -5557,6 +5620,7 @@ def interactive_mode():
         df_master = load_master(MASTER_XLSX_PATH)
         brand_map = build_brand_product_map(df_master)
         print(f"[OK] Loaded {len(brand_map)} brands")
+        brand_lookups = _build_brand_lookups(brand_map)
         all_variants = extract_all_variants_from_data(brand_map)
         all_sub_variants = extract_all_sub_variants_from_data(brand_map)
         print(f"[OK] {len(all_variants)} variants, {len(all_sub_variants)} sub-variants")
@@ -5583,7 +5647,8 @@ def interactive_mode():
             continue
         llm_request_attempts_before = LLM_REQUEST_ATTEMPTS
         res = process_product(
-            input_name_raw, brand_map, all_variants, all_sub_variants, client, verbose=True)
+            input_name_raw, brand_map, all_variants, all_sub_variants, client, verbose=True,
+            _brand_lookups=brand_lookups)
         print("\n" + "=" * 60)
         print(f"Input:        '{input_name_raw}'")
         print(f"Result:       '{res['output']}'")
