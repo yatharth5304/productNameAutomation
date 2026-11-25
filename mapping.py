@@ -4794,6 +4794,39 @@ def process_product(input_name: str, brand_map: dict, all_variants: set, all_sub
             _OCR_NORMALIZATION_CACHE.reset(cache_token)
 
 
+def _mixed_combo_fallback(items, strength, detected_sub_variants):
+    """Identify the failing two-to-three fallback without changing its successful paths."""
+    return (
+        detected_sub_variants - {"PLAIN"} == {strength}
+        and not any(product_contains_combination(it["product"], strength) for it in items)
+        and any("/" not in str(it.get("sub_variant", "")) for it in items)
+        and any(str(it.get("sub_variant", "")).count("/") >= 2 for it in items)
+    )
+
+
+def _emsita_m_tablet(pre_form_items, strength, tail):
+    """Resolve only the M tablets whose compact pack label concealed their form."""
+    supported = []
+    for item in pre_form_items:
+        if item.get("variant") != "M" or item.get("sub_variant") != strength or not item.get("product_code"):
+            continue
+        # The two form indicators must agree: e.g. "10 TAB" and "1X10T".
+        pack = re.fullmatch(r"([1-9]\d*)\s+TABS?", str(item.get("pack_size", "")), re.I)
+        if not pack:
+            continue
+        count = pack[1]
+        if not re.fullmatch(rf"EMSITA\s+M\s+{re.escape(strength)}\s+1X{count}T",
+                            item["product"], re.I):
+            continue
+        # One strip is one master strip, not one tablet. A stated tablet count
+        # must agree even when another pack expression occurs on the same row.
+        tablet = r"(?:TABLETS?|TABS?)"
+        pack_token = rf"(?:1\s*[X*×]\s*{count}[ST]?|1\s*STRIP|{count}[ST]?)(?!\d)"
+        if re.fullmatch(rf"\s*(?:MG\b)?(?:[\s-]|[.,](?!\d)|{tablet}|{pack_token})*(?:\s+1\.00)?", tail):
+            supported.append(item)
+    return supported
+
+
 def _process_product(input_name: str, brand_map: dict, all_variants: set, all_sub_variants: set,
                      client, verbose, _lower_variant_retry, forced_brand, auto_detect,
                      _celol_code, *, _brand_lookups) -> tuple:
@@ -4949,7 +4982,11 @@ def _process_product(input_name: str, brand_map: dict, all_variants: set, all_su
             if not items:
                 return make_result("NO_CLEAR_MATCH", "", status="VARIANT_NOT_IN_MASTER",
                                    confidence="NONE")
+    if brand in {"EMSITA", "EMILDAP"}:
+        pre_form_items = items
     items = prioritize_by_dosage_form(items, _input_forms, verbose=verbose)
+    if brand == "EMSITA":
+        form_filtered_items = items
 
     # Step 1.5: Compound token pre-filter
     compound_tokens = extract_brand_suffix_tokens(input_name, brand)
@@ -5065,6 +5102,24 @@ def _process_product(input_name: str, brand_map: dict, all_variants: set, all_su
     detected_sub_variants = detect_sub_variants_in_input(
         input_name, brand, available_sub_variants, available_variants,
         compound_token_digits=compound_token_digits, verbose=verbose)
+    if brand == "EMSITA" and _input_forms == {"TABLET"} and "M" not in available_variants:
+        request = re.fullmatch(r"(?:EMSITA|EMISTA)[\s-]+M[\s-]+(50\s*/\s*(?:500|1000))(?![\d./])(.*)",
+                               normalize_ocr_numeric_noise(raw_input_name))
+        if request:
+            strength = request[1].replace(" ", "")
+            if _mixed_combo_fallback(items, strength, detected_sub_variants):
+                recovered = _emsita_m_tablet(pre_form_items, strength, request[2])
+                if len(recovered) != 1 or recovered[0] in form_filtered_items:
+                    return make_result("NO_CLEAR_MATCH", "", status="NO_CANDIDATES", confidence="NONE")
+                items = brand_scope_items = recovered
+                detected_variants = {"M"}
+    elif brand == "EMILDAP" and re.fullmatch(r"EMILDAP[\s-]+S[\s-]+10\s*/\s*10",
+                                            normalize_ocr_numeric_noise(raw_input_name)):
+        if (_mixed_combo_fallback(items, "10/10", detected_sub_variants)
+                and not any(re.match(r"^EMILDAP[\s-]+S\b", it["product"], re.I)
+                            and product_contains_combination(it["product"], "10/10")
+                            for it in pre_form_items)):
+            return make_result("NO_CLEAR_MATCH", "", status="NO_CANDIDATES", confidence="NONE")
     _before_sv = items
     items = filter_items_by_sub_variant(items, detected_sub_variants, input_name,
                                          reference_items=brand_scope_items, verbose=verbose)
